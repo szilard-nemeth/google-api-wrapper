@@ -2,9 +2,9 @@ import logging
 from typing import List
 
 from googleapiclient.discovery import build
+from pythoncommons.string_utils import auto_str, StringUtils
 
-from pythoncommons.google.google_auth import GoogleApiAuthorizer
-from pythoncommons.string_utils import StringUtils, auto_str
+from googleapiwrapper.google_auth import GoogleApiAuthorizer
 
 LOG = logging.getLogger(__name__)
 

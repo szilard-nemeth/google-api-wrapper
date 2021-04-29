@@ -6,7 +6,7 @@ from typing import List
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 
-from pythoncommons.google.common import ServiceType
+from googleapiwrapper.common import ServiceType
 
 
 class GoogleApiAuthorizer:

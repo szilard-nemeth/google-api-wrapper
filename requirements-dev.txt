@@ -3,6 +3,7 @@ google-auth-httplib2==0.0.3
 google-auth-oauthlib==0.4.0
 oauth2client
 gspread
+git+https://github.com/szilard-nemeth/python-commons.git
 
 flake8
 pytest>=3.6
