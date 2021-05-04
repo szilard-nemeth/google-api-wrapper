@@ -23,6 +23,8 @@ setup(
     packages=find_packages(exclude=('tests', 'docs')),
     install_requires=[
         'gspread',
+        'oauth2client',
+        'google-api-python-client'
     ]
 )
 
