@@ -51,11 +51,11 @@ class GoogleApiAuthorizer:
                                                               should_exist=True,
                                                               file_type="credentials")
         LOG.info(f"Configuration of {type(self).__name__}:\n"
-                 f"Project: {self.project}"
-                 f"Scopes: {self.scopes}"
-                 f"Server port: {self.server_port}"
-                 f"Token file path (read/write): {self.token_full_path}"
-                 f"Credentials file path (read-only): {self.credentials_full_path}")
+                 f"Project: {self.project}\n"
+                 f"Scopes: {self.scopes}\n"
+                 f"Server port: {self.server_port}\n"
+                 f"Token file path (read/write): {self.token_full_path}\n"
+                 f"Credentials file path (read-only): {self.credentials_full_path}\n")
 
     @staticmethod
     def _get_file_full_path(filename: str,
