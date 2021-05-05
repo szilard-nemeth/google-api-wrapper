@@ -1,3 +1,4 @@
+import logging
 import os
 import pickle
 import os.path
@@ -5,8 +6,10 @@ from typing import List
 
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
+from pythoncommons.file_utils import FileUtils
 
 from googleapiwrapper.common import ServiceType
+LOG = logging.getLogger(__name__)
 
 
 class GoogleApiAuthorizer:
@@ -21,12 +24,42 @@ class GoogleApiAuthorizer:
                  scopes: List[str] = None,
                  server_port: int = DEFAULT_WEBSERVER_PORT,
                  token_filename: str = TOKEN_FILENAME,
-                 credentials_filename: str = CREDENTIALS_FILENAME):
+                 credentials_filename: str = CREDENTIALS_FILENAME,
+                 token_file_path: str = None,
+                 credentials_file_path: str = None):
         self.service_type = service_type
         self._set_scopes(scopes)
         self.server_port = server_port
-        self.token_filename = token_filename
-        self.creds_filename = credentials_filename
+        self.token_full_path = token_filename
+        self.token_full_path = self._get_file_full_path(token_filename,
+                                                        provided_path=token_file_path,
+                                                        should_exist=False,
+                                                        file_type="token")
+        self.credentials_full_path = self._get_file_full_path(credentials_filename,
+                                                              provided_path=credentials_file_path,
+                                                              should_exist=True,
+                                                              file_type="credentials")
+        LOG.info(f"Configuration of {self.__name__}:\n"
+                 f"Token file path (read/write): {self.token_full_path}"
+                 f"Credentials file path (read-only): {self.credentials_full_path}")
+
+    @staticmethod
+    def _get_file_full_path(filename: str,
+                            provided_path=None,
+                            should_exist=True,
+                            file_type=""):
+        # output dir takes precedence
+        if provided_path:
+            if not should_exist:
+                return provided_path
+            if FileUtils.does_file_exist(provided_path):
+                return provided_path
+        fallback_path = FileUtils.join_path(os.getcwd(), filename)
+
+        if provided_path:
+            LOG.warning(f"Provided {file_type} file path does not exist: {provided_path}. "
+                        f"Falling back to path: {fallback_path}")
+        return fallback_path
 
     def _set_scopes(self, scopes):
         self.scopes = scopes
@@ -51,8 +84,8 @@ class GoogleApiAuthorizer:
         time.
         """
         creds = None
-        if os.path.exists(self.token_filename):
-            with open(self.token_filename, 'rb') as token:
+        if os.path.exists(self.token_full_path):
+            with open(self.token_full_path, 'rb') as token:
                 creds = pickle.load(token)
         return creds
 
@@ -60,7 +93,7 @@ class GoogleApiAuthorizer:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(self.creds_filename, self.scopes)
+            flow = InstalledAppFlow.from_client_secrets_file(self.credentials_full_path, self.scopes)
             self.authed_creds = flow.run_local_server(port=self.server_port)
 
             # TODO Save credentials tied to profile (email address)
@@ -72,5 +105,5 @@ class GoogleApiAuthorizer:
         return self.authed_creds
 
     def _write_token(self):
-        with open(self.token_filename, 'wb') as token:
+        with open(self.token_full_path, 'wb') as token:
             pickle.dump(self.authed_creds, token)
