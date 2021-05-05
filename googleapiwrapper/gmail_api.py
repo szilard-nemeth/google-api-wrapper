@@ -270,8 +270,8 @@ class ApiConversionContext:
         self.empty_bodies: List[MessagePartDescriptor] = []
 
         # Set later
-        self.current_message: Message = None
-        self.current_message_part: MessagePart = None
+        self.current_message: Message or None = None
+        self.current_message_part: MessagePart or None = None
 
     def register_current_message(self, message: Message):
         self.current_message: Message = message
@@ -334,10 +334,10 @@ class GmailWrapper:
         threads = GmailThreads()
 
         while request is not None:
-            response = request.execute()
+            response: Dict[str, Any] = request.execute()
             if response:
                 ctx.progress.incr_requests()
-                list_of_threads = response.get(ThreadsResponseField.THREADS.value, [])
+                list_of_threads: List[Dict[str, str]] = response.get(ThreadsResponseField.THREADS.value, [])
                 ctx.progress.register_new_items(len(list_of_threads), print_status=True)
 
                 for idx, thread in enumerate(list_of_threads):
@@ -348,11 +348,11 @@ class GmailWrapper:
                     ctx.progress.print_processing_items()
 
                     thread_response = self._query_thread_data(thread)
-                    messages_response = self._get_field(thread_response, ThreadField.MESSAGES)
+                    messages_response: List[Dict[str, Any]] = self._get_field(thread_response, ThreadField.MESSAGES)
                     messages: List[Message] = [self.parse_api_message(message) for message in messages_response]
                     ctx.handle_empty_bodies(lambda desc: self._query_attachment_of_descriptor(desc))
                     # Create Thread object and that will create GmailMessage and rest of the stuff
-                    thread_obj = Thread(self._get_field(thread_response, ThreadField.ID),
+                    thread_obj: Thread = Thread(self._get_field(thread_response, ThreadField.ID),
                                         messages[0].subject, messages)
                     threads.add(thread_obj)
                     if sanity_check:
