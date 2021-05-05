@@ -100,8 +100,11 @@ class GmailWrapper:
                  api_version: str = None,
                  cache_strategy_type: CachingStrategyType = CachingStrategyType.RAW_MAIL_THREADS,
                  output_basedir: str = None):
-        self.api_fetching_ctx: ApiFetchingContext = ApiFetchingContext(cache_strategy_type.value(output_basedir))
         self.authed_session: AuthedSession = authorizer.authorize()
+        cache_strategy_obj = cache_strategy_type.value(output_basedir,
+                                                       self.authed_session.project_name,
+                                                       self.authed_session.user_email)
+        self.api_fetching_ctx: ApiFetchingContext = ApiFetchingContext(cache_strategy_obj)
         if not api_version:
             api_version = authorizer.service_type.default_api_version
         self.service = build(authorizer.service_type.service_name, api_version,

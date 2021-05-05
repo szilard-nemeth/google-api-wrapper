@@ -16,10 +16,15 @@ class CachingStrategy(ABC):
     Strategies.
     """
 
-    def __init__(self, output_basedir: str):
+    def __init__(self, output_basedir: str, project_name: str, user_email: str):
         if not output_basedir:
             raise ValueError("Must define output basedir!")
+
+        if not project_name or not user_email:
+            raise ValueError(f"Both project name and user email should be set. Current values:{locals()})")
         self.output_basedir = output_basedir
+        user_email_converted = user_email.replace('@', '_').replace('.', '_')
+        self.project_acct_basedir = FileUtils.join_path(self.output_basedir, project_name, user_email_converted)
 
     @abstractmethod
     def handle_threads(self, thread_response: Dict[str, Any], thread: Thread):
@@ -29,9 +34,10 @@ class CachingStrategy(ABC):
 class RawEmailThreadCachingStrategy(CachingStrategy):
     def handle_threads(self, thread_response: Dict[str, Any], thread: Thread):
         thread_id: str = GH.get_field(thread_response, ThreadField.ID)
-        threads_dir = FileUtils.ensure_dir_created(FileUtils.join_path(self.output_basedir, "threads"))
+        threads_dir = FileUtils.ensure_dir_created(FileUtils.join_path(self.project_acct_basedir, "threads"))
         current_thread_dir = FileUtils.ensure_dir_created(FileUtils.join_path(threads_dir, thread_id))
-        JsonFileUtils.write_data_to_file_as_json(FileUtils.join_path(current_thread_dir, "thread_raw.json"), thread_response, pretty=True)
+        raw_thread_json_file = FileUtils.join_path(current_thread_dir, "raw_thread.json")
+        JsonFileUtils.write_data_to_file_as_json(raw_thread_json_file, thread_response, pretty=True)
 
 
 class SomeOtherStrategy(CachingStrategy):
