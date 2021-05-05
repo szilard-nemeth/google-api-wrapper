@@ -16,11 +16,12 @@ class GoogleApiAuthorizer:
     CREDENTIALS_FILENAME = 'credentials.json'
     TOKEN_FILENAME = 'token.pickle'
     DEFAULT_SCOPES = ["https://www.googleapis.com/auth/userinfo.profile", "https://www.googleapis.com/auth/userinfo.email"]
-    # If modifying these scopes, delete the file token.pickle.
+    # TODO If modifying these scopes, delete the file token.pickle.
     DEFAULT_WEBSERVER_PORT = 49555
 
     def __init__(self,
                  service_type: ServiceType,
+                 project: str = None,  # TODO Make this mandatory later
                  scopes: List[str] = None,
                  server_port: int = DEFAULT_WEBSERVER_PORT,
                  token_filename: str = TOKEN_FILENAME,
@@ -28,9 +29,9 @@ class GoogleApiAuthorizer:
                  token_file_path: str = None,
                  credentials_file_path: str = None):
         self.service_type = service_type
+        self.project = project
         self._set_scopes(scopes)
         self.server_port = server_port
-        self.token_full_path = token_filename
         self.token_full_path = self._get_file_full_path(token_filename,
                                                         provided_path=token_file_path,
                                                         should_exist=False,
@@ -40,6 +41,9 @@ class GoogleApiAuthorizer:
                                                               should_exist=True,
                                                               file_type="credentials")
         LOG.info(f"Configuration of {self.__name__}:\n"
+                 f"Project: {self.project}"
+                 f"Scopes: {self.scopes}"
+                 f"Server port: {self.server_port}"
                  f"Token file path (read/write): {self.token_full_path}"
                  f"Credentials file path (read-only): {self.credentials_full_path}")
 
