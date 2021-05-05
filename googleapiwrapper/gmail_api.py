@@ -1,231 +1,18 @@
-import binascii
 import logging
 import sys
-from dataclasses import dataclass, field, InitVar
 import datetime
 from enum import Enum
 from typing import List, Dict, Any
 
 from googleapiclient.discovery import build
+
+from googleapiwrapper.gmail_api_extensions import CachingStrategyType, CachingStrategy, ApiFetchingContext
+from googleapiwrapper.gmail_domain import ApiItemType, Message, MessagePartDescriptor, MessagePart, \
+    GmailMessageBodyPart, ThreadsResponseField, MessagePartField, MessagePartBodyField, HeaderField, MessagePartBody, \
+    Header, ThreadField, GetAttachmentParam, MessageField, Thread, ListQueryParam, GmailThreads, GenericObjectHelper as GH
 from googleapiwrapper.google_auth import GoogleApiAuthorizer, AuthedSession
 from pythoncommons.string_utils import auto_str
-
-from googleapiwrapper.utils import Decoder
-
 LOG = logging.getLogger(__name__)
-
-
-class HeaderField(Enum):
-    NAME = "name"
-    VALUE = "value"
-
-
-class ListQueryParam(Enum):
-    QUERY = "q"
-    USER_ID = "userId"
-    MAX_RESULTS = "maxResults"
-
-
-class GetAttachmentParam(Enum):
-    USER_ID = "userId"
-    MESSAGE_ID = "messageId"
-    ATTACHMENT_ID = "id"
-
-
-class ThreadsResponseField(Enum):
-    THREADS = "threads"
-
-
-class MessagePartBodyField(Enum):
-    SIZE = "size"
-    DATA = "data"
-    ATTACHMENT_ID = "attachmentId"
-
-
-class MessagePartField(Enum):
-    PART_ID = "partId"
-    MIME_TYPE = "mimeType"
-    HEADERS = "headers"
-    BODY = "body"
-    PARTS = "parts"
-
-
-class MessageField(Enum):
-    ID = "id"
-    THREAD_ID = "threadId"
-    SNIPPET = "snippet"
-    DATE = "internalDate"
-    PAYLOAD = "payload"
-
-
-class ThreadField(Enum):
-    ID = "id"
-    MESSAGES = "messages"
-    SNIPPET = "snippet"
-
-
-class ApiItemType(Enum):
-    THREAD = "thread"
-    MESSAGE = "message"
-
-
-class MimeType(Enum):
-    TEXT_PLAIN = "text/plain"
-
-
-@dataclass
-class MessagePartBody:
-    data: str
-    size: str
-    attachmentId: str
-
-
-@dataclass
-class Header:
-    name: str
-    value: str
-
-
-@dataclass
-class MessagePart:
-    id: str
-    mimeType: str  # TODO rename
-    headers: List[Header]
-    body: MessagePartBody
-    parts: List[Any]  # Cannot refer to MessagePart :(
-
-
-@dataclass
-class Message:
-    id: str
-    threadId: str
-    date: datetime.datetime
-    snippet: str
-    payload: MessagePart
-    subject: str = field(init=False)
-    message_parts: List[MessagePart] = field(init=False)
-
-    def __post_init__(self):
-        self.subject = self._get_subject_from_headers()
-        self.message_parts: List[MessagePart] = self._get_all_msg_parts_recursive(self.payload)
-
-    def _get_subject_from_headers(self):
-        for header in self.payload.headers:
-            if header.name == 'Subject':
-                return header.value
-        return None
-
-    def _get_all_msg_parts_recursive(self, msg_part: MessagePart):
-        lst: List[MessagePart] = []
-        for part in msg_part.parts:
-            lst += self._get_all_msg_parts_recursive(part)
-        lst.append(msg_part)
-        return lst
-
-
-@dataclass
-class Thread:
-    id: str
-    subject: str
-    messages: List[Message]
-
-
-# CUSTOM CLASSES
-@dataclass
-class GmailMessageBodyPart:
-    body_data: str
-    mime_type: str
-
-    def __init__(self, body_data, mime_type):
-        self.body = body_data
-        self.mime_type = mime_type
-
-
-@dataclass
-class GmailMessage:
-    msg_id: str
-    thread_id: str
-    subject: str
-    date: datetime.datetime
-    message_parts: InitVar[List[MessagePart]]
-
-    def __post_init__(self, message_parts):
-        self.message_body_parts: List[GmailMessageBodyPart] = self._convert_message_parts(message_parts)
-
-    @staticmethod
-    def from_message(message: Message, thread_id: str):
-        CONVERSION_CONTEXT.register_current_message(message)
-        # message.message_parts already contains all MessageParts (recursively collected)
-        return GmailMessage(message.id, thread_id, message.subject, message.date, message.message_parts)
-
-    def _convert_message_parts(self, message_parts: List[MessagePart]) -> List[GmailMessageBodyPart]:
-        result: List[GmailMessageBodyPart] = []
-        for message_part in message_parts:
-            CONVERSION_CONTEXT.register_current_message_part(message_part)
-            mime_type: str = message_part.mimeType
-            body, successful, empty = self._decode_base64_encoded_body(message_part)
-            gmail_msg_body_part: GmailMessageBodyPart = GmailMessageBodyPart(body, mime_type)
-            result.append(gmail_msg_body_part)
-            if not successful:
-                CONVERSION_CONTEXT.report_decode_error(gmail_msg_body_part)
-            if empty:
-                CONVERSION_CONTEXT.report_empty_body(gmail_msg_body_part)
-        return result
-
-    def _decode_base64_encoded_body(self, message_part: MessagePart):
-        encoded_body_data = message_part.body.data
-        successful = True
-        empty = False
-        try:
-            if encoded_body_data:
-                decoded_body_data = Decoder.decode_base64(encoded_body_data)
-            else:
-                decoded_body_data = ""
-                empty = True
-        except binascii.Error:
-            LOG.exception(f"Failed to parse base64 encoded data for message with id: {self.msg_id}."
-                          f"Storing original body data to object and storing original API object as well.")
-            decoded_body_data = encoded_body_data
-            successful = False
-        return decoded_body_data, successful, empty
-
-    def get_all_plain_text_parts(self) -> List[GmailMessageBodyPart]:
-        return self.get_all_parts_with_type(MimeType.TEXT_PLAIN)
-
-    def get_all_parts_with_type(self, mime_type: MimeType) -> List[GmailMessageBodyPart]:
-        return self._filter_by_mime_type(mime_type, self.message_body_parts)
-
-    @staticmethod
-    def _filter_by_mime_type(mime_type: MimeType, message_parts: List[GmailMessageBodyPart]) -> List[
-        GmailMessageBodyPart]:
-        return list(filter(lambda x: x.mime_type == mime_type.value, message_parts))
-
-
-@dataclass
-class MessagePartDescriptor:
-    message: Message
-    message_part: MessagePart
-    gmail_msg_body_part: GmailMessageBodyPart
-
-
-@dataclass
-class GmailThread:
-    def __init__(self, api_id, messages: List[GmailMessage]):
-        self.api_id = api_id
-        self.messages: List[GmailMessage] = messages
-
-
-@dataclass
-class GmailThreads:
-    threads: List[GmailThread] = field(default_factory=list)
-
-    def add(self, thread: Thread):
-        gmail_thread = GmailThread(thread.id, [GmailMessage.from_message(m, thread.id) for m in thread.messages])
-        self.threads.append(gmail_thread)
-
-    @property
-    def messages(self) -> List[GmailMessage]:
-        return [msg for t in self.threads for msg in t.messages]
 
 
 class Progress:
@@ -309,7 +96,11 @@ class GmailWrapper:
     DEFAULT_API_FIELDS = {ListQueryParam.USER_ID.value: USERID_ME}
     DEFAULT_PAGE_SIZE = 100
 
-    def __init__(self, authorizer: GoogleApiAuthorizer, api_version: str = None):
+    def __init__(self, authorizer: GoogleApiAuthorizer,
+                 api_version: str = None,
+                 cache_strategy_type: CachingStrategyType = CachingStrategyType.RAW_MAIL_THREADS,
+                 output_basedir: str = None):
+        self.api_fetching_ctx: ApiFetchingContext = ApiFetchingContext(cache_strategy_type.value(output_basedir))
         self.authed_session: AuthedSession = authorizer.authorize()
         if not api_version:
             api_version = authorizer.service_type.default_api_version
@@ -347,15 +138,16 @@ class GmailWrapper:
                     ctx.progress.print_processing_items()
 
                     thread_response: Dict[str, Any] = self._query_thread_data(thread)
-                    messages_response: List[Dict[str, Any]] = self._get_field(thread_response, ThreadField.MESSAGES)
+                    thread_id: str = GH.get_field(thread_response, ThreadField.ID)
+                    messages_response: List[Dict[str, Any]] = GH.get_field(thread_response, ThreadField.MESSAGES)
                     messages: List[Message] = [self.parse_api_message(message) for message in messages_response]
                     ctx.handle_empty_bodies(lambda desc: self._query_attachment_of_descriptor(desc))
-                    thread_obj: Thread = Thread(self._get_field(thread_response, ThreadField.ID),
-                                        messages[0].subject, messages)
+                    thread_obj: Thread = Thread(thread_id, messages[0].subject, messages)
                     # Add Thread object. This action will internally create GmailMessage and rest of the stuff
                     threads.add(thread_obj)
                     if sanity_check:
                         self._sanity_check(thread_obj)
+                    self.api_fetching_ctx.process_thread(thread_response, thread_obj)
             request = self.threads_svc.list_next(request, response)
 
         # TODO error log all messages that had missing body + attachment request
@@ -378,46 +170,46 @@ class GmailWrapper:
         # TODO Implement attachment handling
 
     def parse_api_message(self, message: Dict):
-        message_part = self._get_field(message, MessageField.PAYLOAD)
-        message_id: str = self._get_field(message, MessageField.ID)
+        message_part = GH.get_field(message, MessageField.PAYLOAD)
+        message_id: str = GH.get_field(message, MessageField.ID)
         message_part_obj: MessagePart = self.parse_message_part(message_part, message_id)
         return Message(
             message_id,
-            self._get_field(message, MessageField.THREAD_ID),
-            datetime.datetime.fromtimestamp(int(self._get_field(message, MessageField.DATE)) / 1000),
-            self._get_field(message, MessageField.SNIPPET),
+            GH.get_field(message, MessageField.THREAD_ID),
+            datetime.datetime.fromtimestamp(int(GH.get_field(message, MessageField.DATE)) / 1000),
+            GH.get_field(message, MessageField.SNIPPET),
             message_part_obj
         )
 
     def parse_message_part(self, message_part, message_id: str) -> MessagePart:
-        message_parts = self._get_field(message_part, MessagePartField.PARTS, [])
+        message_parts = GH.get_field(message_part, MessagePartField.PARTS, [])
         headers = self._parse_headers(message_part)
         message_part_obj: MessagePart = MessagePart(
-            self._get_field(message_part, MessagePartField.PART_ID),
-            self._get_field(message_part, MessagePartField.MIME_TYPE),
+            GH.get_field(message_part, MessagePartField.PART_ID),
+            GH.get_field(message_part, MessagePartField.MIME_TYPE),
             headers,
-            self._parse_message_part_body_obj(self._get_field(message_part, MessagePartField.BODY)),
+            self._parse_message_part_body_obj(GH.get_field(message_part, MessagePartField.BODY)),
             [self.parse_message_part(part, message_id) for part in message_parts],
         )
         return message_part_obj
 
     def _parse_headers(self, message_part):
-        headers_list: List[Dict[str, str]] = self._get_field(message_part, MessagePartField.HEADERS)
+        headers_list: List[Dict[str, str]] = GH.get_field(message_part, MessagePartField.HEADERS)
         headers: List[Header] = []
         for header_dict in headers_list:
-            headers.append(Header(self._get_field(header_dict, HeaderField.NAME),
-                                  self._get_field(header_dict, HeaderField.VALUE)))
+            headers.append(Header(GH.get_field(header_dict, HeaderField.NAME),
+                                  GH.get_field(header_dict, HeaderField.VALUE)))
         return headers
 
     def _parse_message_part_body_obj(self, messagepart_body):
-        message_part_body_obj = MessagePartBody(self._get_field(messagepart_body, MessagePartBodyField.DATA),
-                                                self._get_field(messagepart_body, MessagePartBodyField.SIZE),
-                                                self._get_field(messagepart_body, MessagePartBodyField.ATTACHMENT_ID))
+        message_part_body_obj = MessagePartBody(GH.get_field(messagepart_body, MessagePartBodyField.DATA),
+                                                GH.get_field(messagepart_body, MessagePartBodyField.SIZE),
+                                                GH.get_field(messagepart_body, MessagePartBodyField.ATTACHMENT_ID))
         return message_part_body_obj
 
     def _query_thread_data(self, thread):
         kwargs = self._get_new_kwargs()
-        kwargs[ThreadField.ID.value] = self._get_field(thread, ThreadField.ID)
+        kwargs[ThreadField.ID.value] = GH.get_field(thread, ThreadField.ID)
         tdata = self.threads_svc.get(**kwargs).execute()
         return tdata
 
@@ -427,17 +219,6 @@ class GmailWrapper:
         kwargs[GetAttachmentParam.ATTACHMENT_ID.value] = attachment_id
         attachment_data = self.attachments_svc.get(**kwargs).execute()
         return attachment_data
-
-    @staticmethod
-    def _get_field(gmail_api_obj: Dict, field, default_val=None):
-        if isinstance(field, Enum):
-            if field.value in gmail_api_obj:
-                ret = gmail_api_obj[field.value]
-            else:
-                ret = default_val
-            if not ret:
-                ret = default_val
-            return ret
 
     @staticmethod
     def _get_new_kwargs():
