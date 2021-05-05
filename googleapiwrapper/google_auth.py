@@ -2,14 +2,24 @@ import logging
 import os
 import pickle
 import os.path
+from dataclasses import dataclass
 from typing import List
 
+from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from pythoncommons.file_utils import FileUtils
 
 from googleapiwrapper.common import ServiceType
 LOG = logging.getLogger(__name__)
+
+
+@dataclass
+class AuthedSession:
+    authed_creds: Credentials
+    user_email: str
+    user_name: str
+    project_name: str
 
 
 class GoogleApiAuthorizer:
@@ -29,7 +39,7 @@ class GoogleApiAuthorizer:
                  token_file_path: str = None,
                  credentials_file_path: str = None):
         self.service_type = service_type
-        self.project = project
+        self.project = project if project else "unknown"
         self._set_scopes(scopes)
         self.server_port = server_port
         self.token_full_path = self._get_file_full_path(token_filename,
@@ -40,7 +50,7 @@ class GoogleApiAuthorizer:
                                                               provided_path=credentials_file_path,
                                                               should_exist=True,
                                                               file_type="credentials")
-        LOG.info(f"Configuration of {self.__name__}:\n"
+        LOG.info(f"Configuration of {type(self).__name__}:\n"
                  f"Project: {self.project}"
                  f"Scopes: {self.scopes}"
                  f"Server port: {self.server_port}"
@@ -74,40 +84,41 @@ class GoogleApiAuthorizer:
         os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
         self.scopes.extend(self.DEFAULT_SCOPES)
 
-    def authorize(self):
-        creds = self._load_token()
+    def authorize(self) -> Credentials:
+        authed_session: AuthedSession = self._load_token()
         # If there are no (valid) credentials available, let the user log in.
-        if not creds or not creds.valid:
-            creds = self._handle_login(creds)
-        return creds
+        if not authed_session or not authed_session.authed_creds or not authed_session.authed_creds.valid:
+            authed_session = self._handle_login(authed_session)
+        return authed_session.authed_creds
 
-    def _load_token(self):
+    def _load_token(self) -> AuthedSession:
         """
         The file token.pickle stores the user's access and refresh tokens, and is
         created automatically when the authorization flow completes for the first
         time.
         """
-        creds = None
+        authed_session: AuthedSession or None = None
         if os.path.exists(self.token_full_path):
             with open(self.token_full_path, 'rb') as token:
-                creds = pickle.load(token)
-        return creds
+                authed_session = pickle.load(token)
+        return authed_session
 
-    def _handle_login(self, creds):
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+    def _handle_login(self, authed_session: AuthedSession) -> AuthedSession:
+        if authed_session:
+            creds = authed_session.authed_creds
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
         else:
             flow = InstalledAppFlow.from_client_secrets_file(self.credentials_full_path, self.scopes)
-            self.authed_creds = flow.run_local_server(port=self.server_port)
+            authed_creds: Credentials = flow.run_local_server(port=self.server_port)
 
-            # TODO Save credentials tied to profile (email address)
             session = flow.authorized_session()
             profile_info = session.get('https://www.googleapis.com/userinfo/v2/me').json()
-            print(profile_info)
+            authed_session = AuthedSession(authed_creds, profile_info["email"], profile_info["name"], self.project)
         # Save the credentials for the next run
-        self._write_token()
-        return self.authed_creds
+        self._write_token(authed_session)
+        return authed_session
 
-    def _write_token(self):
+    def _write_token(self, authed_session: AuthedSession):
         with open(self.token_full_path, 'wb') as token:
-            pickle.dump(self.authed_creds, token)
+            pickle.dump(authed_session, token)
