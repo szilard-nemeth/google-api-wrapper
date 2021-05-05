@@ -301,7 +301,7 @@ class ApiConversionContext:
 
 
 CONVERSION_CONTEXT: ApiConversionContext = None
-this = sys.modules[__name__]
+module = sys.modules[__name__]
 
 
 class GmailWrapper:
@@ -322,7 +322,7 @@ class GmailWrapper:
 
     def query_threads_with_paging(self, query: str = None, limit: int = None,
                                   sanity_check=True) -> GmailThreads:
-        this.CONVERSION_CONTEXT = ApiConversionContext(ApiItemType.THREAD, limit=limit)
+        module.CONVERSION_CONTEXT = ApiConversionContext(ApiItemType.THREAD, limit=limit)
         ctx = CONVERSION_CONTEXT
         kwargs = self._get_new_kwargs()
         if query:
@@ -332,7 +332,6 @@ class GmailWrapper:
         request = self.threads_svc.list(**kwargs)
 
         threads = GmailThreads()
-
         while request is not None:
             response: Dict[str, Any] = request.execute()
             if response:
@@ -347,13 +346,13 @@ class GmailWrapper:
                         return threads
                     ctx.progress.print_processing_items()
 
-                    thread_response = self._query_thread_data(thread)
+                    thread_response: Dict[str, Any] = self._query_thread_data(thread)
                     messages_response: List[Dict[str, Any]] = self._get_field(thread_response, ThreadField.MESSAGES)
                     messages: List[Message] = [self.parse_api_message(message) for message in messages_response]
                     ctx.handle_empty_bodies(lambda desc: self._query_attachment_of_descriptor(desc))
-                    # Create Thread object and that will create GmailMessage and rest of the stuff
                     thread_obj: Thread = Thread(self._get_field(thread_response, ThreadField.ID),
                                         messages[0].subject, messages)
+                    # Add Thread object. This action will internally create GmailMessage and rest of the stuff
                     threads.add(thread_obj)
                     if sanity_check:
                         self._sanity_check(thread_obj)
