@@ -7,7 +7,7 @@ from enum import Enum
 from typing import List, Dict, Any
 
 from googleapiclient.discovery import build
-from googleapiwrapper.google_auth import GoogleApiAuthorizer
+from googleapiwrapper.google_auth import GoogleApiAuthorizer, AuthedSession
 from pythoncommons.string_utils import auto_str
 
 from googleapiwrapper.utils import Decoder
@@ -310,10 +310,11 @@ class GmailWrapper:
     DEFAULT_PAGE_SIZE = 100
 
     def __init__(self, authorizer: GoogleApiAuthorizer, api_version: str = None):
-        self.creds = authorizer.authorize()
+        self.authed_session: AuthedSession = authorizer.authorize()
         if not api_version:
             api_version = authorizer.service_type.default_api_version
-        self.service = build(authorizer.service_type.service_name, api_version, credentials=self.creds)
+        self.service = build(authorizer.service_type.service_name, api_version,
+                             credentials=self.authed_session.authed_creds)
         self.users_svc = self.service.users()
         self.messages_svc = self.users_svc.messages()
         self.threads_svc = self.users_svc.threads()
@@ -375,7 +376,7 @@ class GmailWrapper:
                       f"Object was: {descriptor}")
             return
         attachment_response = self._query_attachment(message_id, attachment_id)
-        # TODO Implement
+        # TODO Implement attachment handling
 
     def parse_api_message(self, message: Dict):
         message_part = self._get_field(message, MessageField.PAYLOAD)

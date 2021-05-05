@@ -121,10 +121,11 @@ class DriveApiWrapper:
     DEFAULT_PAGE_SIZE = 100
 
     def __init__(self, authorizer: GoogleApiAuthorizer, api_version: str = None):
-        self.creds = authorizer.authorize()
+        self.authed_session = authorizer.authorize()
         if not api_version:
             api_version = authorizer.service_type.default_api_version
-        self.service = build(authorizer.service_type.service_name, api_version, credentials=self.creds)
+        self.service = build(authorizer.service_type.service_name, api_version,
+                             credentials=self.authed_session.authed_creds)
         self.files_service = self.service.files()
 
     def print_shared_files(self, page_size=DEFAULT_PAGE_SIZE, fields=None, order_by=DEFAULT_ORDER_BY):

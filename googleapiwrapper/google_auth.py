@@ -84,12 +84,12 @@ class GoogleApiAuthorizer:
         os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
         self.scopes.extend(self.DEFAULT_SCOPES)
 
-    def authorize(self) -> Credentials:
+    def authorize(self) -> AuthedSession:
         authed_session: AuthedSession = self._load_token()
         # If there are no (valid) credentials available, let the user log in.
         if not authed_session or not authed_session.authed_creds or not authed_session.authed_creds.valid:
             authed_session = self._handle_login(authed_session)
-        return authed_session.authed_creds
+        return authed_session
 
     def _load_token(self) -> AuthedSession:
         """
