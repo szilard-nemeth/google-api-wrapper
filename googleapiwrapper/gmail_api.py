@@ -98,7 +98,7 @@ class GmailWrapper:
 
     def __init__(self, authorizer: GoogleApiAuthorizer,
                  api_version: str = None,
-                 cache_strategy_type: CachingStrategyType = CachingStrategyType.RAW_MAIL_THREADS,
+                 cache_strategy_type: CachingStrategyType = CachingStrategyType.FILESYSTEM_CACHE_STRATEGY,
                  output_basedir: str = None):
         self.authed_session: AuthedSession = authorizer.authorize()
         cache_strategy_obj = cache_strategy_type.value(output_basedir,
@@ -114,8 +114,11 @@ class GmailWrapper:
         self.threads_svc = self.users_svc.threads()
         self.attachments_svc = self.messages_svc.attachments()
 
-    def query_threads_with_paging(self, query: str = None, limit: int = None,
-                                  sanity_check=True) -> GmailThreads:
+    def query_threads_with_paging(self,
+                                  query: str = None,
+                                  limit: int = None,
+                                  sanity_check=True,
+                                  expect_one_message_per_thread=False) -> GmailThreads:
         module.CONVERSION_CONTEXT = ApiConversionContext(ApiItemType.THREAD, limit=limit)
         ctx = CONVERSION_CONTEXT
         kwargs = self._get_new_kwargs()
@@ -133,15 +136,22 @@ class GmailWrapper:
                 list_of_threads: List[Dict[str, str]] = response.get(ThreadsResponseField.THREADS.value, [])
                 ctx.progress.register_new_items(len(list_of_threads), print_status=True)
 
-                for idx, thread in enumerate(list_of_threads):
+                thread_ids: List[str] = [GH.get_field(t, ThreadField.ID) for t in list_of_threads]
+                thread_ids_to_query = self.api_fetching_ctx.get_thread_ids_to_query_from_api(thread_ids,
+                                                                                             expect_one_message_per_thread=expect_one_message_per_thread)
+                if thread_ids_to_query:
+                    LOG.debug(f"API fetching context returned email thread IDs to query again: {thread_ids_to_query}")
+                else:
+                    LOG.debug(f"API fetching context returned no email thread IDs to query in this round")
+
+                for idx, thread_id in enumerate(thread_ids_to_query):
                     ctx.progress.incr_processed_items()
                     if ctx.progress.is_limit_reached():
-                        LOG.warning("Reached limit, stop processing more items.")
+                        LOG.warning(f"Reached request limit of {limit}, stop processing more items.")
                         return threads
                     ctx.progress.print_processing_items()
 
-                    thread_response: Dict[str, Any] = self._query_thread_data(thread)
-                    thread_id: str = GH.get_field(thread_response, ThreadField.ID)
+                    thread_response: Dict[str, Any] = self._query_thread_data(thread_id)
                     messages_response: List[Dict[str, Any]] = GH.get_field(thread_response, ThreadField.MESSAGES)
                     messages: List[Message] = [self.parse_api_message(message) for message in messages_response]
                     ctx.handle_empty_bodies(lambda desc: self._query_attachment_of_descriptor(desc))
@@ -210,9 +220,9 @@ class GmailWrapper:
                                                 GH.get_field(messagepart_body, MessagePartBodyField.ATTACHMENT_ID))
         return message_part_body_obj
 
-    def _query_thread_data(self, thread):
+    def _query_thread_data(self, thread_id: str):
         kwargs = self._get_new_kwargs()
-        kwargs[ThreadField.ID.value] = GH.get_field(thread, ThreadField.ID)
+        kwargs[ThreadField.ID.value] = thread_id
         tdata = self.threads_svc.get(**kwargs).execute()
         return tdata
 
