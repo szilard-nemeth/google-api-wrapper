@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Set
 from pythoncommons.file_utils import JsonFileUtils, FileUtils, FindResultType
 
 from googleapiwrapper.gmail_domain import Thread, GenericObjectHelper as GH, ThreadField, MessageField
+from googleapiwrapper.utils import CommonUtils
 
 MESSAGE_DATE = "message_date"
 MESSAGE_ID = "message_id"
@@ -68,7 +69,7 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         # Inner-dict value: message date
         self.thread_to_message_data: Dict[str, Dict[str, str]] = {}
         self.unknown_message_per_thread: Dict[str, Set[str]] = {}
-        user_email_converted = user_email.replace('@', '_').replace('.', '_')
+        user_email_converted = CommonUtils.convert_email_address_to_dirname(user_email)
         self.project_acct_basedir = FileUtils.join_path(output_basedir, project_name, user_email_converted)
         self.threads_dir = FileUtils.join_path(self.project_acct_basedir, THREADS_DIR_NAME)
         super().__init__(output_basedir, project_name, user_email)

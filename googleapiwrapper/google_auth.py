@@ -3,6 +3,7 @@ import os
 import pickle
 import os.path
 from dataclasses import dataclass
+from enum import Enum
 from typing import List
 
 from google.oauth2.credentials import Credentials
@@ -11,7 +12,14 @@ from google.auth.transport.requests import Request
 from pythoncommons.file_utils import FileUtils
 
 from googleapiwrapper.common import ServiceType
+from googleapiwrapper.utils import CommonUtils
+
 LOG = logging.getLogger(__name__)
+
+
+class CredentialsFileType(Enum):
+    CLIENT_SECRET = "client-secret"
+    TOKEN_PICKLE = "token-pickle"
 
 
 @dataclass
@@ -23,57 +31,42 @@ class AuthedSession:
 
 
 class GoogleApiAuthorizer:
-    CREDENTIALS_FILENAME = 'credentials.json'
-    TOKEN_FILENAME = 'token.pickle'
     DEFAULT_SCOPES = ["https://www.googleapis.com/auth/userinfo.profile", "https://www.googleapis.com/auth/userinfo.email"]
     # TODO If modifying these scopes, delete the file token.pickle.
     DEFAULT_WEBSERVER_PORT = 49555
 
     def __init__(self,
                  service_type: ServiceType,
-                 project: str = None,  # TODO Make this mandatory later
+                 secret_basedir: str,
+                 project_name: str,
+                 account_email: str,
                  scopes: List[str] = None,
-                 server_port: int = DEFAULT_WEBSERVER_PORT,
-                 token_filename: str = TOKEN_FILENAME,
-                 credentials_filename: str = CREDENTIALS_FILENAME,
-                 token_file_path: str = None,
-                 credentials_file_path: str = None):
+                 server_port: int = DEFAULT_WEBSERVER_PORT):
+        self.account_email = account_email
+        self.secret_basedir = secret_basedir
         self.service_type = service_type
-        self.project = project if project else "unknown"
+        self.project_name = project_name
         self._set_scopes(scopes)
         self.server_port = server_port
-        self.token_full_path = self._get_file_full_path(token_filename,
-                                                        provided_path=token_file_path,
-                                                        should_exist=False,
-                                                        file_type="token")
-        self.credentials_full_path = self._get_file_full_path(credentials_filename,
-                                                              provided_path=credentials_file_path,
-                                                              should_exist=True,
-                                                              file_type="credentials")
+        self.token_full_path = self._get_file_full_path(cred_file_type=CredentialsFileType.TOKEN_PICKLE)
+        self.credentials_full_path = self._get_file_full_path(cred_file_type=CredentialsFileType.CLIENT_SECRET)
         LOG.info(f"Configuration of {type(self).__name__}:\n"
-                 f"Project: {self.project}\n"
+                 f"Secret basedir: {self.secret_basedir}\n"
+                 f"Project name: {self.project_name}\n"
+                 f"Account email: {self.account_email}\n"
                  f"Scopes: {self.scopes}\n"
                  f"Server port: {self.server_port}\n"
                  f"Token file path (read/write): {self.token_full_path}\n"
                  f"Credentials file path (read-only): {self.credentials_full_path}\n")
 
-    @staticmethod
-    def _get_file_full_path(filename: str,
-                            provided_path=None,
-                            should_exist=True,
-                            file_type=""):
-        # output dir takes precedence
-        if provided_path:
-            if not should_exist:
-                return provided_path
-            if FileUtils.does_file_exist(provided_path):
-                return provided_path
-        fallback_path = FileUtils.join_path(os.getcwd(), filename)
-
-        if provided_path:
-            LOG.warning(f"Provided {file_type} file path does not exist: {provided_path}. "
-                        f"Falling back to path: {fallback_path}")
-        return fallback_path
+    def _get_file_full_path(self,
+                            cred_file_type: CredentialsFileType):
+        account_dirname = CommonUtils.convert_email_address_to_dirname(self.account_email)
+        if cred_file_type == CredentialsFileType.CLIENT_SECRET:
+            return FileUtils.join_path(self.secret_basedir, self.project_name, f"client_secret_{account_dirname}.json")
+        elif cred_file_type == CredentialsFileType.TOKEN_PICKLE:
+            return FileUtils.join_path(self.secret_basedir, self.project_name, "tokenpickles",
+                                       f"token_{self.project_name}_{account_dirname}.pickle")
 
     def _set_scopes(self, scopes):
         self.scopes = scopes
@@ -114,7 +107,7 @@ class GoogleApiAuthorizer:
 
             session = flow.authorized_session()
             profile_info = session.get('https://www.googleapis.com/userinfo/v2/me').json()
-            authed_session = AuthedSession(authed_creds, profile_info["email"], profile_info["name"], self.project)
+            authed_session = AuthedSession(authed_creds, profile_info["email"], profile_info["name"], self.project_name)
         # Save the credentials for the next run
         self._write_token(authed_session)
         return authed_session

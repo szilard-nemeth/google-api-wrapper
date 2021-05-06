@@ -3,6 +3,11 @@ import logging
 
 LOG = logging.getLogger(__name__)
 
+class CommonUtils:
+    @staticmethod
+    def convert_email_address_to_dirname(user_email: str):
+        return user_email.replace('@', '_').replace('.', '_')
+
 
 class Decoder:
     @staticmethod
