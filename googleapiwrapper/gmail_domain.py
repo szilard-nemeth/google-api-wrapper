@@ -10,6 +10,12 @@ from googleapiwrapper.utils import Decoder
 LOG = logging.getLogger(__name__)
 
 
+class ThreadQueryFormat(Enum):
+    FULL = "full"
+    METADATA = "metadata"
+    MINIMAL = "minimal"
+
+
 class HeaderField(Enum):
     NAME = "name"
     VALUE = "value"
@@ -57,6 +63,10 @@ class ThreadField(Enum):
     ID = "id"
     MESSAGES = "messages"
     SNIPPET = "snippet"
+
+
+class ThreadQueryParam(Enum):
+    FORMAT = "format"
 
 
 class ApiItemType(Enum):

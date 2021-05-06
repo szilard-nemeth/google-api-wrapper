@@ -8,7 +8,8 @@ from googleapiclient.discovery import build
 from googleapiwrapper.gmail_api_extensions import CachingStrategyType, ApiFetchingContext
 from googleapiwrapper.gmail_domain import ApiItemType, Message, MessagePartDescriptor, MessagePart, \
     GmailMessageBodyPart, ThreadsResponseField, MessagePartField, MessagePartBodyField, HeaderField, MessagePartBody, \
-    Header, ThreadField, GetAttachmentParam, MessageField, Thread, ListQueryParam, GmailThreads, GenericObjectHelper as GH
+    Header, ThreadField, GetAttachmentParam, MessageField, Thread, ListQueryParam, GmailThreads, \
+    GenericObjectHelper as GH, ThreadQueryFormat, ThreadQueryParam
 from googleapiwrapper.google_auth import GoogleApiAuthorizer, AuthedSession
 from pythoncommons.string_utils import auto_str
 LOG = logging.getLogger(__name__)
@@ -36,7 +37,8 @@ class Progress:
         if print_status:
             self._print_status()
 
-    def incr_processed_items(self):
+    def incr_processed_items(self, item_id: str):
+        self.current_item_id = item_id
         self.processed_items += 1
 
     def is_limit_reached(self):
@@ -44,8 +46,11 @@ class Progress:
             return self.processed_items > self.limit
         return False
 
-    def print_processing_items(self):
-        LOG.debug(f"Processing {self.item_type.value}s: {self.processed_items} / {self.all_items_count}")
+    def print_processing_items(self, print_item_id=True):
+        msg = f"Processing {self.item_type.value}s: {self.processed_items} / {self.all_items_count}."
+        if print_item_id:
+            msg += f" [Item ID: {self.current_item_id}]"
+        LOG.debug(msg)
 
 
 @auto_str
@@ -144,14 +149,29 @@ class GmailWrapper:
                     LOG.debug(f"API fetching context returned no email thread IDs to query in this round")
 
                 for idx, thread_id in enumerate(thread_ids_to_query):
-                    ctx.progress.incr_processed_items()
+                    ctx.progress.incr_processed_items(thread_id)
                     if ctx.progress.is_limit_reached():
                         LOG.warning(f"Reached request limit of {limit}, stop processing more items.")
                         return threads
                     ctx.progress.print_processing_items()
 
-                    thread_response: Dict[str, Any] = self._query_thread_data(thread_id)
-                    messages_response: List[Dict[str, Any]] = GH.get_field(thread_response, ThreadField.MESSAGES)
+                    # Try to query in minimal format first, hoping that some messages are already in cache
+                    thread_resp_minimal: Dict[str, Any] = self._query_thread_data(thread_id, full=False)
+                    messages_response: List[Dict[str, Any]] = GH.get_field(thread_resp_minimal, ThreadField.MESSAGES)
+                    message_ids: List[str] = [GH.get_field(msg, MessageField.ID) for msg in messages_response]
+                    fully_cached: bool = self.api_fetching_ctx.is_thread_fully_cached(thread_id, message_ids)
+                    if fully_cached:
+                        LOG.info(f"Thread found in cache, won't make further API requests for it. Thread ID: {thread_id}")
+                        LOG.debug("Thread is fully cached, all messages were found in cache. "
+                                  f"Thread ID: {thread_id}, Message IDs: {message_ids}")
+                        thread_resp_full = self.api_fetching_ctx.get_thread_from_cache(thread_id)
+                        if not thread_resp_full:
+                            raise ValueError(f"Thread object is none for thread ID '{thread_id}'")
+                    else:
+                        # Thread is not fully in cache, some messages are missing.
+                        # In this case, we need to retrieve the thread again, now with full format
+                        thread_resp_full: Dict[str, Any] = self._query_thread_data(thread_id, full=True)
+                    messages_response: List[Dict[str, Any]] = GH.get_field(thread_resp_full, ThreadField.MESSAGES)
                     messages: List[Message] = [self.parse_api_message(message) for message in messages_response]
                     ctx.handle_empty_bodies(lambda desc: self._query_attachment_of_descriptor(desc))
                     thread_obj: Thread = Thread(thread_id, messages[0].subject, messages)
@@ -159,7 +179,7 @@ class GmailWrapper:
                     threads.add(thread_obj)
                     if sanity_check:
                         self._sanity_check(thread_obj)
-                    self.api_fetching_ctx.process_thread(thread_response, thread_obj)
+                    self.api_fetching_ctx.process_thread(thread_resp_full, thread_obj)
             request = self.threads_svc.list_next(request, response)
 
         # TODO error log all messages that had missing body + attachment request
@@ -219,9 +239,11 @@ class GmailWrapper:
                                                 GH.get_field(messagepart_body, MessagePartBodyField.ATTACHMENT_ID))
         return message_part_body_obj
 
-    def _query_thread_data(self, thread_id: str):
+    def _query_thread_data(self, thread_id: str, full=True):
         kwargs = self._get_new_kwargs()
         kwargs[ThreadField.ID.value] = thread_id
+        format: ThreadQueryFormat = ThreadQueryFormat.FULL if full else ThreadQueryFormat.MINIMAL
+        kwargs[ThreadQueryParam.FORMAT.value] = format.value
         tdata = self.threads_svc.get(**kwargs).execute()
         return tdata
 
