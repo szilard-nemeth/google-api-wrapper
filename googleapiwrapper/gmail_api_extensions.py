@@ -69,20 +69,28 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         raw_thread_json_file = FileUtils.join_path(current_thread_dir, THREAD_JSON_FILENAME)
         JsonFileUtils.write_data_to_file_as_json(raw_thread_json_file, thread_response, pretty=True)
 
-        messages_response: List[Dict[str, Any]] = GH.get_field(thread_response, ThreadField.MESSAGES)
+        message_data_dicts: List[Dict[str, str]] = self._convert_thread_response_to_message_data_dicts(thread_response)
+        message_data_file = FileUtils.join_path(current_thread_dir, MESSAGE_DATA_FILENAME)
+        JsonFileUtils.write_data_to_file_as_json(message_data_file, message_data_dicts, pretty=True)
 
+    @staticmethod
+    def _convert_thread_response_to_message_data_dicts(thread_response):
+        messages_response: List[Dict[str, Any]] = GH.get_field(thread_response, ThreadField.MESSAGES)
         message_data_dicts: List[Dict[str, str]] = []
         for msg in messages_response:
             message_data_dicts.append({
                 "message_id": GH.get_field(msg, MessageField.ID),
                 "message_date": GH.get_field(msg, MessageField.DATE)
             })
-        message_data_file = FileUtils.join_path(current_thread_dir, MESSAGE_DATA_FILENAME)
-        JsonFileUtils.write_data_to_file_as_json(message_data_file, message_data_dicts, pretty=True)
+        return message_data_dicts
 
     def get_thread_ids_to_query_from_api(self, thread_ids, expect_one_message_per_thread=False):
         if expect_one_message_per_thread:
+            # Only query threads that are not in cache
             return set(thread_ids).difference(set(self.thread_ids))
+        else:
+            # TODO implement checking number of messages per thread
+            pass
         return thread_ids
 
 
