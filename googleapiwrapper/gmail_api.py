@@ -1,12 +1,11 @@
 import logging
 import sys
 import datetime
-from enum import Enum
 from typing import List, Dict, Any
 
 from googleapiclient.discovery import build
 
-from googleapiwrapper.gmail_api_extensions import CachingStrategyType, CachingStrategy, ApiFetchingContext
+from googleapiwrapper.gmail_api_extensions import CachingStrategyType, ApiFetchingContext
 from googleapiwrapper.gmail_domain import ApiItemType, Message, MessagePartDescriptor, MessagePart, \
     GmailMessageBodyPart, ThreadsResponseField, MessagePartField, MessagePartBodyField, HeaderField, MessagePartBody, \
     Header, ThreadField, GetAttachmentParam, MessageField, Thread, ListQueryParam, GmailThreads, GenericObjectHelper as GH
