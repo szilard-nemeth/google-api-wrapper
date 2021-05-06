@@ -60,6 +60,7 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
             message_data_file = FileUtils.join_path(threads_dir, thread_id, MESSAGE_DATA_FILENAME)
             self.message_data_dicts.extend(JsonFileUtils.load_data_from_json_file(message_data_file))
         LOG.debug(f"Loaded message data: {self.message_data_dicts}")
+        # TODO Saved message data is not used at all, currently
 
     def handle_threads(self, thread_response: Dict[str, Any], thread: Thread):
         thread_id: str = GH.get_field(thread_response, ThreadField.ID)
@@ -86,6 +87,10 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
 
 
 class NoCacheStrategy(CachingStrategy):
+    def get_thread_ids_to_query_from_api(self, thread_ids, expect_one_message_per_thread=False):
+        # All threads are unknown if we are using no cache strategy
+        return thread_ids
+
     def fill_cache(self):
         LOG.debug(f"Invoked fill_cache of {type(self).__name__}")
 
