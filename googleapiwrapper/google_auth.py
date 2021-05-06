@@ -110,7 +110,7 @@ class GoogleApiAuthorizer:
                 creds.refresh(Request())
         else:
             flow = InstalledAppFlow.from_client_secrets_file(self.credentials_full_path, self.scopes)
-            authed_creds: Credentials = flow.run_local_server(port=self.server_port)
+            authed_creds: Credentials = flow.run_local_server(port=self.server_port, prompt='consent')
 
             session = flow.authorized_session()
             profile_info = session.get('https://www.googleapis.com/userinfo/v2/me').json()
