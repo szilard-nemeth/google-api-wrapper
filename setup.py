@@ -24,7 +24,7 @@ setup(
     install_requires=[
         'gspread',
         'oauth2client',
-        'google-api-python-client'
+        'google-api-python-client==1.7.9'
     ]
 )
 
