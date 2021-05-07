@@ -132,7 +132,8 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
 
     def get_thread_ids_to_query_from_api(self, thread_ids, expect_one_message_per_thread=False):
         if expect_one_message_per_thread:
-            # Only query threads that are not in cache
+            # Only query threads that are not in cache / unknown.
+            # All known thread IDs are stored in self.thread_ids
             return set(thread_ids).difference(set(self.thread_ids))
         # If we expect more than 1 message per thread, even known threads may have new messages.
         # Return all thread IDs in this case, as messages should be queried again for these.
@@ -162,6 +163,7 @@ class NoCacheStrategy(CachingStrategy):
 
 class ApiFetchingContext:
     def __init__(self, strategy: CachingStrategy) -> None:
+        # TODO log debug cache strategy type
         self._caching_strategy = strategy
 
     @property

@@ -143,6 +143,7 @@ class GmailWrapper:
                 thread_ids: List[str] = [GH.get_field(t, ThreadField.ID) for t in list_of_threads]
                 thread_ids_to_query = self.api_fetching_ctx.get_thread_ids_to_query_from_api(thread_ids,
                                                                                              expect_one_message_per_thread=expect_one_message_per_thread)
+                # TODO Print stats: How many threads are found / not found in cache.
                 if thread_ids_to_query:
                     LOG.debug(f"API fetching context returned email thread IDs to query again: {thread_ids_to_query}")
                 else:
@@ -236,7 +237,8 @@ class GmailWrapper:
         )
         return message_part_obj
 
-    def _parse_headers(self, message_part):
+    @staticmethod
+    def _parse_headers(message_part):
         headers_list: List[Dict[str, str]] = GH.get_field(message_part, MessagePartField.HEADERS)
         headers: List[Header] = []
         for header_dict in headers_list:
@@ -244,7 +246,8 @@ class GmailWrapper:
                                   GH.get_field(header_dict, HeaderField.VALUE)))
         return headers
 
-    def _parse_message_part_body_obj(self, messagepart_body):
+    @staticmethod
+    def _parse_message_part_body_obj(messagepart_body):
         message_part_body_obj = MessagePartBody(GH.get_field(messagepart_body, MessagePartBodyField.DATA),
                                                 GH.get_field(messagepart_body, MessagePartBodyField.SIZE),
                                                 GH.get_field(messagepart_body, MessagePartBodyField.ATTACHMENT_ID))
