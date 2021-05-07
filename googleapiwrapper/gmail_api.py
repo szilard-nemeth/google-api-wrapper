@@ -139,7 +139,6 @@ class GmailWrapper:
                 ctx.progress.incr_requests()
                 list_of_threads: List[Dict[str, str]] = response.get(ThreadsResponseField.THREADS.value, [])
                 ctx.progress.register_new_items(len(list_of_threads), print_status=True)
-
                 thread_ids: List[str] = [GH.get_field(t, ThreadField.ID) for t in list_of_threads]
                 cache_state: CacheResultItems = self.api_fetching_ctx.get_cache_state_for_threads(thread_ids, expect_one_message_per_thread)
                 LOG.info(f"Found cached items {len(thread_ids)} / {cache_state.get_no_of_any_cached_for_items()}. "
@@ -254,10 +253,11 @@ class GmailWrapper:
         return message_part_body_obj
 
     def _query_thread_data(self, thread_id: str, full=True):
+        fmt: ThreadQueryFormat = ThreadQueryFormat.FULL if full else ThreadQueryFormat.MINIMAL
         kwargs = self._get_new_kwargs()
         kwargs[ThreadField.ID.value] = thread_id
-        format: ThreadQueryFormat = ThreadQueryFormat.FULL if full else ThreadQueryFormat.MINIMAL
-        kwargs[ThreadQueryParam.FORMAT.value] = format.value
+        kwargs[ThreadQueryParam.FORMAT.value] = fmt.value
+        LOG.info(f"Requesting gmail thread with id '{thread_id}', format: {fmt.value}")
         tdata = self.threads_svc.get(**kwargs).execute()
         return tdata
 
