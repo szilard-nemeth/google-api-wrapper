@@ -142,7 +142,7 @@ class GmailWrapper:
 
                 thread_ids: List[str] = [GH.get_field(t, ThreadField.ID) for t in list_of_threads]
                 cache_state: CacheResultItems = self.api_fetching_ctx.get_cache_state_for_threads(thread_ids, expect_one_message_per_thread)
-                LOG.info(f"Found cached items {cache_state.get_no_of_any_cached_for_items()} / {len(thread_ids)}. "
+                LOG.info(f"Found cached items {len(thread_ids)} / {cache_state.get_no_of_any_cached_for_items()}. "
                          f"Detailed breakdown: \n{cache_state.get_status_dict()}")
                 LOG.debug(f"API fetching context returned cache state for {len(thread_ids)} mail threads: {cache_state}")
                 for idx, thread_id in enumerate(thread_ids):

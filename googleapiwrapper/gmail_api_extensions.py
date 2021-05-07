@@ -235,17 +235,21 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         JsonFileUtils.write_data_to_file_as_json(message_data_file, message_data_dicts, pretty=True)
 
     def get_cache_state(self, thread_ids: List[str], expect_one_message_per_thread: bool):
+        unknown_thread_ids: Set[str] = set(thread_ids).difference(set(self.cached_thread_ids))
         if expect_one_message_per_thread:
             # Only query threads that are not in cache, on other words unknown.
             # All known thread IDs are stored in self.thread_ids.
             # When only one message / thread is expected, consider all known threads as fully cached.
             return CacheResultItems(thread_ids)\
-                .add_not_cached(set(thread_ids).difference(set(self.cached_thread_ids)))\
+                .add_not_cached(unknown_thread_ids)\
                 .add_fully_cached({t_id: self._get_thread_from_file_system(t_id) for t_id in self.cached_thread_ids})
+
         # If we expect more than 1 message per thread, even known threads may have new messages.
-        # Return all thread IDs in this case, as messages should be queried again for these.
+        # In this case, treat all known thread IDs as not yet determined, as messages should be queried again for them.
+        known_thread_ids: Set[str] = set(thread_ids).difference(unknown_thread_ids)
         return CacheResultItems(thread_ids)\
-            .add_not_yet_determined(thread_ids)
+            .add_not_yet_determined(known_thread_ids)\
+            .add_not_cached(unknown_thread_ids)
 
     def _get_thread_from_file_system(self, thread_id: str):
         """
