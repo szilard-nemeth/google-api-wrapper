@@ -70,7 +70,7 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         self.thread_to_message_data: Dict[str, Dict[str, str]] = {}
         self.unknown_message_per_thread: Dict[str, Set[str]] = {}
         user_email_converted = CommonUtils.convert_email_address_to_dirname(user_email)
-        self.project_acct_basedir = FileUtils.join_path(output_basedir, project_name, user_email_converted)
+        self.project_acct_basedir = FileUtils.join_path(output_basedir, user_email_converted)
         self.threads_dir = FileUtils.join_path(self.project_acct_basedir, THREADS_DIR_NAME)
         super().__init__(output_basedir, project_name, user_email)
 
