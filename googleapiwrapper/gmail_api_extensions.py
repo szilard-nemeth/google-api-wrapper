@@ -119,13 +119,13 @@ class CacheResultItems:
 
     def mark_partially_cached(self, thread_id):
         item_state: ItemCacheState = self._get_item_cache_status(thread_id)
-        self._remove_from_previous_collection(thread_id, item_state)
         self.partially_cached_items[thread_id] = CachedItem(thread_id, None, ItemCacheState.PARTIALLY_CACHED)
+        self._remove_from_previous_collection(thread_id, item_state)
 
     def mark_fully_cached(self, thread_id, thread_data):
         item_state: ItemCacheState = self._get_item_cache_status(thread_id)
-        self._remove_from_previous_collection(thread_id, item_state)
         self.fully_cached_items[thread_id] = CachedItem(thread_id, thread_data, ItemCacheState.FULLY_CACHED)
+        self._remove_from_previous_collection(thread_id, item_state)
 
     def _get_item_cache_status(self, thread_id):
         not_yet_determined = True if thread_id in self.not_yet_determined_ids else False
@@ -269,6 +269,7 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         self.unknown_message_per_thread[thread_id] = set(message_ids).difference(message_ids_for_thread)
         if self.unknown_message_per_thread[thread_id]:
             cache_state.mark_partially_cached(thread_id)
+            return
         # Thread is fully cached with all messages
         cache_state.mark_fully_cached(thread_id, self._get_thread_from_file_system(thread_id))
 
