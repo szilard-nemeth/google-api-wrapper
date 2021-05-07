@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 
 from googleapiclient.discovery import build
 
-from googleapiwrapper.gmail_api_extensions import CachingStrategyType, ApiFetchingContext
+from googleapiwrapper.gmail_api_extensions import CachingStrategyType, ApiFetchingContext, CacheResultItems
 from googleapiwrapper.gmail_domain import ApiItemType, Message, MessagePartDescriptor, MessagePart, \
     GmailMessageBodyPart, ThreadsResponseField, MessagePartField, MessagePartBodyField, HeaderField, MessagePartBody, \
     Header, ThreadField, GetAttachmentParam, MessageField, Thread, ListQueryParam, GmailThreads, \
@@ -141,22 +141,18 @@ class GmailWrapper:
                 ctx.progress.register_new_items(len(list_of_threads), print_status=True)
 
                 thread_ids: List[str] = [GH.get_field(t, ThreadField.ID) for t in list_of_threads]
-                thread_ids_to_query = self.api_fetching_ctx.get_thread_ids_to_query_from_api(thread_ids,
-                                                                                             expect_one_message_per_thread=expect_one_message_per_thread)
-                # TODO Print stats: How many threads are found / not found in cache.
-                if thread_ids_to_query:
-                    LOG.debug(f"API fetching context returned email thread IDs to query again: {thread_ids_to_query}")
-                else:
-                    LOG.debug(f"API fetching context returned no email thread IDs to query in this round")
-
-                for idx, thread_id in enumerate(thread_ids_to_query):
+                cache_state: CacheResultItems = self.api_fetching_ctx.get_cache_state_for_threads(thread_ids, expect_one_message_per_thread)
+                LOG.info(f"Found cached items {cache_state.get_no_of_any_cached_for_items()} / {len(thread_ids)}. "
+                         f"Detailed breakdown: \n{cache_state.get_status_dict()}")
+                LOG.debug(f"API fetching context returned cache state for {len(thread_ids)} mail threads: {cache_state}")
+                for idx, thread_id in enumerate(thread_ids):
+                    # TODO consider limiting only real sent requests, not processed items!
                     ctx.progress.incr_processed_items(thread_id)
                     if ctx.progress.is_limit_reached():
                         LOG.warning(f"Reached request limit of {limit}, stop processing more items.")
                         return threads
                     ctx.progress.print_processing_items()
-                    message_ids = self._query_thread_data_minimal(thread_id)
-                    thread_resp_full = self._request_thread_or_load_from_cache(thread_id, message_ids)
+                    thread_resp_full = self._request_thread_or_load_from_cache(thread_id, cache_state)
                     thread_obj = self._convert_to_thread_object(ctx, sanity_check, thread_id, thread_resp_full, threads)
                     self.api_fetching_ctx.process_thread(thread_resp_full, thread_obj)
             request = self.threads_svc.list_next(request, response)
@@ -172,17 +168,21 @@ class GmailWrapper:
         message_ids: List[str] = [GH.get_field(msg, MessageField.ID) for msg in messages_response]
         return message_ids
 
-    def _request_thread_or_load_from_cache(self, thread_id, message_ids):
-        fully_cached: bool = self.api_fetching_ctx.is_thread_fully_cached(thread_id, message_ids)
-        if fully_cached:
+    def _request_thread_or_load_from_cache(self, thread_id: str, cache_state: CacheResultItems):
+        if not cache_state.is_fully_cached(thread_id):
+            message_ids: List[str] = self._query_thread_data_minimal(thread_id)
+            self.api_fetching_ctx.process_messages(cache_state, thread_id, message_ids)
+
+        # Check if thread is now considered as fully cached, given the provided message IDs above
+        if cache_state.is_fully_cached(thread_id):
             LOG.info(f"Thread found in cache, won't make further API requests for it. Thread ID: {thread_id}")
             LOG.debug("Thread is fully cached, all messages were found in cache. "
-                      f"Thread ID: {thread_id}, Message IDs: {message_ids}")
-            thread_resp_full = self.api_fetching_ctx.get_thread_from_cache(thread_id)
+                      f"Thread ID: {thread_id}")
+            thread_resp_full = cache_state.get_data_for_item(thread_id)
             if not thread_resp_full:
-                raise ValueError(f"Thread object is none for thread ID '{thread_id}'")
+                raise ValueError(f"Thread data is None for thread ID '{thread_id}'. Please check logs.")
         else:
-            # Thread is not fully in cache, some messages are missing.
+            # Not all messages for this thread are in cache.
             # In this case, we need to retrieve the thread again, now with full format
             thread_resp_full: Dict[str, Any] = self._query_thread_data(thread_id, full=True)
         return thread_resp_full
@@ -247,7 +247,7 @@ class GmailWrapper:
         return headers
 
     @staticmethod
-    def _parse_message_part_body_obj(messagepart_body):
+    def _parse_message_part_body_obj(messagepart_body: Dict[str, Any]):
         message_part_body_obj = MessagePartBody(GH.get_field(messagepart_body, MessagePartBodyField.DATA),
                                                 GH.get_field(messagepart_body, MessagePartBodyField.SIZE),
                                                 GH.get_field(messagepart_body, MessagePartBodyField.ATTACHMENT_ID))
