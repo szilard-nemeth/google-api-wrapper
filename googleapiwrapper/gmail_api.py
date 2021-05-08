@@ -4,6 +4,7 @@ import datetime
 from typing import List, Dict, Any
 
 from googleapiclient.discovery import build
+from pythoncommons.date_utils import timeit
 
 from googleapiwrapper.gmail_api_extensions import CachingStrategyType, ApiFetchingContext, CacheResultItems
 from googleapiwrapper.gmail_domain import ApiItemType, Message, MessagePartDescriptor, MessagePart, \
@@ -142,11 +143,14 @@ class GmailWrapper:
         self.threads_svc = self.users_svc.threads()
         self.attachments_svc = self.messages_svc.attachments()
 
+    @timeit
     def query_threads_with_paging(self,
                                   query: str = None,
                                   limit: int = None,
                                   sanity_check=True,
                                   expect_one_message_per_thread=False) -> GmailThreads:
+        query_conf: str = f"Query: {query}, Limit: {limit}, Expect one message per thread: {expect_one_message_per_thread}"
+        LOG.info(f"Querying gmail threads. Config: {query_conf}")
         module.CONVERSION_CONTEXT = ApiConversionContext(ApiItemType.THREAD, limit=limit)
         ctx = CONVERSION_CONTEXT
         kwargs = self._get_new_kwargs()
@@ -180,6 +184,7 @@ class GmailWrapper:
             request = self.threads_svc.list_next(request, response)
 
         ctx.handle_encoding_errors()
+        LOG.info(f"Finished querying gmail threads. Config: {query_conf}")
         return threads
 
     @staticmethod
