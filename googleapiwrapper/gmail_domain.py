@@ -82,7 +82,10 @@ class MimeType(Enum):
 class MessagePartBody:
     data: str
     size: str
-    attachmentId: str
+    attachment_id: str
+
+    def short_str(self):
+        return f"{{ size: {self.size}, attachment_id: {self.attachment_id} }}"
 
 
 @dataclass
@@ -94,10 +97,17 @@ class Header:
 @dataclass
 class MessagePart:
     id: str
-    mimeType: str  # TODO rename
+    mime_type: str
     headers: List[Header]
     body: MessagePartBody
     parts: List[Any]  # Cannot refer to MessagePart :(
+
+    def short_str(self):
+        return f"{{ ID: {self.id}, " \
+               f"mime_type: {self.mime_type}, " \
+               f"headers: {self.headers}, " \
+               f"body (short): {self.body.short_str()}, " \
+               f"parts (short): {[part.short_str() for part in self.parts]} }}"
 
 
 @dataclass
@@ -128,7 +138,7 @@ class Message:
         return lst
 
     def short_str(self):
-        return f"ID: {self.id}, snippet: {self.snippet}, subject: {self.subject}"
+        return f"{{ ID: {self.id}, snippet: {self.snippet}, subject: {self.subject} }}"
 
 
 @dataclass
@@ -147,6 +157,9 @@ class GmailMessageBodyPart:
     def __init__(self, body_data, mime_type):
         self.body_data = body_data
         self.mime_type = mime_type
+
+    def short_str(self):
+        return f"{{ mime_type: {self.mime_type} }}"
 
 
 @dataclass
@@ -176,7 +189,7 @@ class GmailMessage:
         CONVERSION_CONTEXT = GmailMessage._get_conversion_context()
         for message_part in message_parts:
             CONVERSION_CONTEXT.register_current_message_part(message_part)
-            mime_type: str = message_part.mimeType
+            mime_type: str = message_part.mime_type
             body, decoding_successful, empty = self._decode_base64_encoded_body(message_part)
             gmail_msg_body_part: GmailMessageBodyPart = GmailMessageBodyPart(body, mime_type)
             result.append(gmail_msg_body_part)

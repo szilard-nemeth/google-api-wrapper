@@ -55,6 +55,7 @@ class Progress:
         LOG.debug(msg)
 
 
+# TODO Move this object as a dependency of ApiFetchingContext
 @auto_str
 class ApiConversionContext:
     def __init__(self, item_type: ApiItemType, limit: int = None):
@@ -73,25 +74,32 @@ class ApiConversionContext:
         self.current_message_part = message_part
 
     def report_decode_error(self, thread_id: str, gmail_msg_body_part: GmailMessageBodyPart):
-        self._log_error(f"Decoding error for thread with ID '{thread_id}'. "
+        self._log_error(f"Decoding error for thread with ID '{thread_id}'.\n"
                         f"Details: {self._get_current_message_details(gmail_msg_body_part)}")
         self.decode_errors.append(MessagePartDescriptor(self.current_message,
                                                         self.current_message_part, gmail_msg_body_part))
+
+    def report_empty_body(self, thread_id: str, gmail_msg_body_part: GmailMessageBodyPart):
+        details = self._get_current_message_details(gmail_msg_body_part,
+                                                    short_message_part=False,
+                                                    short_gmail_message_body_part=False)
+        self._log_error(f"Empty message for thread with ID '{thread_id}'.\n"
+                        f"Details: {details}")
+        self.empty_bodies.append(MessagePartDescriptor(self.current_message,
+                                                       self.current_message_part, gmail_msg_body_part))
 
     @staticmethod
     def _log_error(msg: str):
         LOG.error(CONV_CONTEXT_PREFIX + " " + msg)
 
-    def _get_current_message_details(self, gmail_msg_body_part: GmailMessageBodyPart):
-        return f"Message: {self.current_message.short_str()}\n" \
-               f"MessagePart: {self.current_message_part}\n" \
-               f"gmail_msg_body_part: {gmail_msg_body_part}"
-
-    def report_empty_body(self, thread_id: str, gmail_msg_body_part: GmailMessageBodyPart):
-        self._log_error(f"Empty message for thread with ID '{thread_id}'. "
-                        f"Details: {self._get_current_message_details(gmail_msg_body_part)}")
-        self.empty_bodies.append(MessagePartDescriptor(self.current_message,
-                                                       self.current_message_part, gmail_msg_body_part))
+    def _get_current_message_details(self, gmail_msg_body_part: GmailMessageBodyPart,
+                                     short_message_part=True,
+                                     short_gmail_message_body_part=True):
+        message_part_str = self.current_message_part.short_str() if short_message_part else self.current_message_part
+        gmail_msg_body_part_str = gmail_msg_body_part.short_str() if short_gmail_message_body_part else gmail_msg_body_part
+        return f"Message: {self.current_message.short_str()},\n" \
+               f"MessagePart: {message_part_str},\n" \
+               f"gmail_msg_body_part: {gmail_msg_body_part_str}"
 
     def handle_encoding_errors(self):
         # TODO error log all
@@ -217,7 +225,7 @@ class GmailWrapper:
         # separate messages.attachments.get request.
         # When not present, the entire content of the message part body is contained in the data field.
         message_id = descriptor.message.id
-        attachment_id = descriptor.message_part.body.attachmentId
+        attachment_id = descriptor.message_part.body.attachment_id
         if not message_id or not attachment_id:
             LOG.error("Both message_id and attachment_id has to be set in order to query attachment details from API."
                       f"Object was: {descriptor}")
