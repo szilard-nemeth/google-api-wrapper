@@ -127,6 +127,9 @@ class Message:
         lst.append(msg_part)
         return lst
 
+    def short_str(self):
+        return f"ID: {self.id}, snippet: {self.snippet}, subject: {self.subject}"
+
 
 @dataclass
 class Thread:
@@ -142,7 +145,7 @@ class GmailMessageBodyPart:
     mime_type: str
 
     def __init__(self, body_data, mime_type):
-        self.body = body_data
+        self.body_data = body_data
         self.mime_type = mime_type
 
 
@@ -174,13 +177,13 @@ class GmailMessage:
         for message_part in message_parts:
             CONVERSION_CONTEXT.register_current_message_part(message_part)
             mime_type: str = message_part.mimeType
-            body, successful, empty = self._decode_base64_encoded_body(message_part)
+            body, decoding_successful, empty = self._decode_base64_encoded_body(message_part)
             gmail_msg_body_part: GmailMessageBodyPart = GmailMessageBodyPart(body, mime_type)
             result.append(gmail_msg_body_part)
-            if not successful:
-                CONVERSION_CONTEXT.report_decode_error(gmail_msg_body_part)
+            if not decoding_successful:
+                CONVERSION_CONTEXT.report_decode_error(self.thread_id, gmail_msg_body_part)
             if empty:
-                CONVERSION_CONTEXT.report_empty_body(gmail_msg_body_part)
+                CONVERSION_CONTEXT.report_empty_body(self.thread_id, gmail_msg_body_part)
         return result
 
     def _decode_base64_encoded_body(self, message_part: MessagePart):

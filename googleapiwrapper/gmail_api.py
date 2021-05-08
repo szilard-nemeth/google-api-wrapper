@@ -12,6 +12,8 @@ from googleapiwrapper.gmail_domain import ApiItemType, Message, MessagePartDescr
     GenericObjectHelper as GH, ThreadQueryFormat, ThreadQueryParam
 from googleapiwrapper.google_auth import GoogleApiAuthorizer, AuthedSession
 from pythoncommons.string_utils import auto_str
+
+CONV_CONTEXT_PREFIX = "[API Conversion context] "
 LOG = logging.getLogger(__name__)
 
 
@@ -70,13 +72,24 @@ class ApiConversionContext:
     def register_current_message_part(self, message_part: MessagePart):
         self.current_message_part = message_part
 
-    def report_decode_error(self, gmail_msg_body_part: GmailMessageBodyPart):
-        # TODO error log
+    def report_decode_error(self, thread_id: str, gmail_msg_body_part: GmailMessageBodyPart):
+        self._log_error(f"Decoding error for thread with ID '{thread_id}'. "
+                        f"Details: {self._get_current_message_details(gmail_msg_body_part)}")
         self.decode_errors.append(MessagePartDescriptor(self.current_message,
                                                         self.current_message_part, gmail_msg_body_part))
 
-    def report_empty_body(self, gmail_msg_body_part: GmailMessageBodyPart):
-        # TODO error log
+    @staticmethod
+    def _log_error(msg: str):
+        LOG.error(CONV_CONTEXT_PREFIX + " " + msg)
+
+    def _get_current_message_details(self, gmail_msg_body_part: GmailMessageBodyPart):
+        return f"Message: {self.current_message.short_str()}\n" \
+               f"MessagePart: {self.current_message_part}\n" \
+               f"gmail_msg_body_part: {gmail_msg_body_part}"
+
+    def report_empty_body(self, thread_id: str, gmail_msg_body_part: GmailMessageBodyPart):
+        self._log_error(f"Empty message for thread with ID '{thread_id}'. "
+                        f"Details: {self._get_current_message_details(gmail_msg_body_part)}")
         self.empty_bodies.append(MessagePartDescriptor(self.current_message,
                                                        self.current_message_part, gmail_msg_body_part))
 
