@@ -234,6 +234,12 @@ class MessagePartDescriptor:
     message_part: MessagePart
     gmail_msg_body_part: GmailMessageBodyPart
 
+    def __str__(self):
+        return f"{{ mesage: {self.message.short_str()}, " \
+               f"message_part: {self.message_part.short_str()}, " \
+               f"gmail_msg_body_part: {self.gmail_msg_body_part} " \
+               f"}}"
+
 
 @dataclass
 class GmailThread:
