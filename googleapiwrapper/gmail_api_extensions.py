@@ -176,7 +176,7 @@ class CachingStrategy(ABC):
         pass
 
     @abstractmethod
-    def process_threads(self, thread_response: Dict[str, Any], thread: Thread):
+    def process_threads(self, thread_response: Dict[str, Any]):
         pass
 
     @abstractmethod
@@ -221,7 +221,7 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         self.thread_to_message_data[thread_id] = {msg_data[MESSAGE_ID]: msg_data[MESSAGE_DATE] for msg_data in
                                                   list_of_message_data}
 
-    def process_threads(self, thread_response: Dict[str, Any], thread: Thread):
+    def process_threads(self, thread_response: Dict[str, Any]):
         # TODO only write to file if required, i.e. thread is not fully cached.
         #  Also, make this configurable
         thread_id: str = GH.get_field(thread_response, ThreadField.ID)
@@ -295,7 +295,7 @@ class NoCacheStrategy(CachingStrategy):
     def fill_cache(self):
         LOG.debug(f"Invoked fill_cache of {type(self).__name__}")
 
-    def process_threads(self, thread_response: Dict[str, Any], thread: Thread):
+    def process_threads(self, thread_response: Dict[str, Any]):
         LOG.debug(f"Invoked handle_threads of {type(self).__name__} with an email thread")
 
 
@@ -312,8 +312,8 @@ class ApiFetchingContext:
     def caching_strategy(self, strategy: CachingStrategy) -> None:
         self._caching_strategy = strategy
 
-    def process_thread(self, thread_response: Dict[str, Any], thread_obj: Thread):
-        self._caching_strategy.process_threads(thread_response, thread_obj)
+    def process_thread(self, thread_response: Dict[str, Any]):
+        self._caching_strategy.process_threads(thread_response)
 
     def get_cache_state_for_threads(self, thread_ids: List[str], expect_one_message_per_thread: bool) -> CacheResultItems:
         return self._caching_strategy.get_cache_state(thread_ids, expect_one_message_per_thread)

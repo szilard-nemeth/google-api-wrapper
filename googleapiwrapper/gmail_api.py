@@ -152,8 +152,10 @@ class GmailWrapper:
                         return threads
                     ctx.progress.print_processing_items()
                     thread_resp_full = self._request_thread_or_load_from_cache(thread_id, cache_state)
-                    thread_obj = self._convert_to_thread_object(ctx, sanity_check, thread_id, thread_resp_full, threads)
-                    self.api_fetching_ctx.process_thread(thread_resp_full, thread_obj)
+                    self.api_fetching_ctx.process_thread(thread_resp_full)
+                    thread_obj = self._convert_to_thread_object(ctx, sanity_check, thread_id, thread_resp_full)
+                    # Add Thread object. This action will internally create GmailMessage and rest of the stuff
+                    threads.add(thread_obj)
             request = self.threads_svc.list_next(request, response)
 
         # TODO error log all messages that had missing body + attachment request
@@ -186,13 +188,11 @@ class GmailWrapper:
             thread_resp_full: Dict[str, Any] = self._query_thread_data(thread_id, full=True)
         return thread_resp_full
 
-    def _convert_to_thread_object(self, ctx, sanity_check: bool, thread_id: str, thread_resp_full, threads: GmailThreads):
+    def _convert_to_thread_object(self, ctx, sanity_check: bool, thread_id: str, thread_resp_full):
         messages_response: List[Dict[str, Any]] = GH.get_field(thread_resp_full, ThreadField.MESSAGES)
         messages: List[Message] = [self.parse_api_message(message) for message in messages_response]
         ctx.handle_empty_bodies(lambda desc: self._query_attachment_of_descriptor(desc))
         thread_obj: Thread = Thread(thread_id, messages[0].subject, messages)
-        # Add Thread object. This action will internally create GmailMessage and rest of the stuff
-        threads.add(thread_obj)
         if sanity_check:
             self._sanity_check(thread_obj)
         return thread_obj
