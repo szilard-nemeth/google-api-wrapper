@@ -132,11 +132,11 @@ class CacheResultItems:
         not_cached = True if thread_id in self.not_cached_ids else False
 
         if not any([not_cached, not_yet_determined]):
-            raise ValueError(f"Thread with id '{thread_id}' should be in the collection of threads "
+            raise ValueError(f"Thread with ID '{thread_id}' should be in the collection of threads "
                              f"with not yet determined or not cached state but it wasn't in any of these. "
                              f"This could be a programming error!")
         if all([not_cached, not_yet_determined]):
-            raise ValueError(f"Thread with id '{thread_id}' is in the collection of threads "
+            raise ValueError(f"Thread with ID '{thread_id}' is in the collection of threads "
                              f"with not yet determined AND not cached state but should be only one of these. "
                              f"This is a programming error!")
         if not_cached:
@@ -222,8 +222,7 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
                                                   list_of_message_data}
 
     def process_threads(self, thread_response: Dict[str, Any]):
-        # TODO only write to file if required, i.e. thread is not fully cached.
-        #  Also, make this configurable
+        # TODO only write to file if required, i.e. thread is not fully cached. Also, make this configurable
         thread_id: str = GH.get_field(thread_response, ThreadField.ID)
         threads_dir = FileUtils.ensure_dir_created(FileUtils.join_path(self.project_acct_basedir, THREADS_DIR_NAME))
         current_thread_dir = FileUtils.ensure_dir_created(FileUtils.join_path(threads_dir, thread_id))
@@ -259,7 +258,7 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         :return:
         """
         if thread_id not in self.cached_thread_ids:
-            raise ValueError(f"Thread id '{thread_id}' is not in cache. This should not happen at this point.")
+            raise ValueError(f"Thread with ID '{thread_id}' is not in cache. This should not happen at this point.")
         thread_json_file = FileUtils.join_path(self.threads_dir, thread_id, THREAD_JSON_FILENAME)
         return JsonFileUtils.load_data_from_json_file(thread_json_file)
 

@@ -113,7 +113,7 @@ class MessagePart:
 @dataclass
 class Message:
     id: str
-    threadId: str
+    thread_id: str
     date: datetime.datetime
     snippet: str
     payload: MessagePart
@@ -210,7 +210,7 @@ class GmailMessage:
                 decoded_body_data = ""
                 empty = True
         except binascii.Error:
-            LOG.exception(f"Failed to parse base64 encoded data for message with id: {self.msg_id}."
+            LOG.exception(f"Failed to parse base64 encoded data for message with ID: {self.msg_id}."
                           f"Storing original body data to object and storing original API object as well.")
             decoded_body_data = encoded_body_data
             successful = False

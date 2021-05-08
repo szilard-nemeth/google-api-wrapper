@@ -102,7 +102,7 @@ class ApiConversionContext:
                f"gmail_msg_body_part: {gmail_msg_body_part_str}"
 
     def handle_encoding_errors(self):
-        # TODO error log all
+        # TODO error log all messages that had missing body + attachment request
         self.decode_errors.clear()
 
     def handle_empty_bodies(self, func):
@@ -151,8 +151,8 @@ class GmailWrapper:
             kwargs[ListQueryParam.QUERY.value] = query
         if limit and limit < GmailWrapper.DEFAULT_PAGE_SIZE:
             kwargs[ListQueryParam.MAX_RESULTS.value] = limit
-        request = self.threads_svc.list(**kwargs)
 
+        request = self.threads_svc.list(**kwargs)
         threads = GmailThreads()
         while request is not None:
             response: Dict[str, Any] = request.execute()
@@ -175,11 +175,9 @@ class GmailWrapper:
                     thread_resp_full = self._request_thread_or_load_from_cache(thread_id, cache_state)
                     self.api_fetching_ctx.process_thread(thread_resp_full)
                     thread_obj = self._convert_to_thread_object(ctx, sanity_check, thread_id, thread_resp_full)
-                    # Add Thread object. This action will internally create GmailMessage and rest of the stuff
-                    threads.add(thread_obj)
+                    threads.add(thread_obj)  # This action will internally create GmailMessage and rest of the stuff
             request = self.threads_svc.list_next(request, response)
 
-        # TODO error log all messages that had missing body + attachment request
         ctx.handle_encoding_errors()
         return threads
 
@@ -224,13 +222,14 @@ class GmailWrapper:
         # When present, contains the ID of an external attachment that can be retrieved in a
         # separate messages.attachments.get request.
         # When not present, the entire content of the message part body is contained in the data field.
-        message_id = descriptor.message.id
+        message_id: str = descriptor.message.id
+        thread_id: str = descriptor.message.thread_id
         attachment_id = descriptor.message_part.body.attachment_id
         if not message_id or not attachment_id:
             LOG.error("Both message_id and attachment_id has to be set in order to query attachment details from API."
                       f"Object was: {descriptor}")
             return
-        attachment_response = self._query_attachment(message_id, attachment_id)
+        attachment_response: Dict[str, Any] = self._query_attachment(thread_id, message_id, attachment_id)
         # TODO Implement attachment handling
 
     def parse_api_message(self, message: Dict):
@@ -278,16 +277,16 @@ class GmailWrapper:
         kwargs = self._get_new_kwargs()
         kwargs[ThreadField.ID.value] = thread_id
         kwargs[ThreadQueryParam.FORMAT.value] = fmt.value
-        LOG.info(f"Requesting gmail thread with id '{thread_id}', format: {fmt.value}")
+        LOG.info(f"Requesting gmail thread with ID '{thread_id}', format: {fmt.value}")
         tdata = self.threads_svc.get(**kwargs).execute()
         return tdata
 
-    def _query_attachment(self, message_id: str, attachment_id: str):
+    def _query_attachment(self, thread_id: str, message_id: str, attachment_id: str) -> Dict[str, Any]:
         kwargs = self._get_new_kwargs()
         kwargs[GetAttachmentParam.MESSAGE_ID.value] = message_id
         kwargs[GetAttachmentParam.ATTACHMENT_ID.value] = attachment_id
-        attachment_data = self.attachments_svc.get(**kwargs).execute()
-        return attachment_data
+        LOG.info(f"Requesting gmail attachment for message with ID '{message_id}', Thread ID '{thread_id}'")
+        return self.attachments_svc.get(**kwargs).execute()
 
     @staticmethod
     def _get_new_kwargs():
