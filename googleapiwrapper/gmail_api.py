@@ -1,6 +1,7 @@
 import logging
 import sys
 import datetime
+from dataclasses import dataclass
 from typing import List, Dict, Any
 
 from googleapiclient.discovery import build
@@ -120,6 +121,25 @@ CONVERSION_CONTEXT: ApiConversionContext = None
 module = sys.modules[__name__]
 
 
+@dataclass
+class ThreadQueryResults:
+    threads: GmailThreads
+
+    def __post_init__(self):
+        messages = self.threads.messages
+        self.no_of_threads = len(self.threads.threads)
+        self.no_of_messages = len(messages)
+        # TODO Add subject property to GmailThread
+        self.subjects_and_ids = [(t.messages[0].subject, t.api_id) for t in self.threads.threads]
+        self.unique_subjects = set([tup[0] for tup in self.subjects_and_ids])
+
+    def __str__(self):
+        return f"{{ Number of threads: {self.no_of_threads}\n" \
+               f"Number of messages: {self.no_of_messages}\n" \
+               f"Subjects and ids: {self.subjects_and_ids}\n" \
+               f"Unique subjects: {self.unique_subjects}"
+
+
 class GmailWrapper:
     USERID_ME = 'me'
     DEFAULT_API_FIELDS = {ListQueryParam.USER_ID.value: USERID_ME}
@@ -144,11 +164,11 @@ class GmailWrapper:
         self.attachments_svc = self.messages_svc.attachments()
 
     @timeit
-    def query_threads_with_paging(self,
-                                  query: str = None,
-                                  limit: int = None,
-                                  sanity_check=True,
-                                  expect_one_message_per_thread=False) -> GmailThreads:
+    def query_threads(self,
+                      query: str = None,
+                      limit: int = None,
+                      sanity_check=True,
+                      expect_one_message_per_thread=False) -> ThreadQueryResults:
         query_conf: str = f"Query: {query}, Limit: {limit}, Expect one message per thread: {expect_one_message_per_thread}"
         LOG.info(f"Querying gmail threads. Config: {query_conf}")
         module.CONVERSION_CONTEXT = ApiConversionContext(ApiItemType.THREAD, limit=limit)
@@ -185,7 +205,7 @@ class GmailWrapper:
 
         ctx.handle_encoding_errors()
         LOG.info(f"Finished querying gmail threads. Config: {query_conf}")
-        return threads
+        return ThreadQueryResults(threads)
 
     @staticmethod
     def _log_cache_state_details(cache_state: CacheResultItems, item_ids: List[str]):

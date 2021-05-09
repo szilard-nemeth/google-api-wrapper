@@ -241,7 +241,6 @@ class MessagePartDescriptor:
                f"}}"
 
 
-@dataclass
 class GmailThread:
     def __init__(self, api_id, messages: List[GmailMessage]):
         self.api_id = api_id
