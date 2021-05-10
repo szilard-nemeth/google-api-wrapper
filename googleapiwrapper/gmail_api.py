@@ -195,7 +195,7 @@ class GmailWrapper:
                     ctx.progress.incr_processed_items(thread_id)
                     if ctx.progress.is_limit_reached():
                         LOG.warning(f"Reached request limit of {limit}, stop processing more items.")
-                        return threads
+                        return ThreadQueryResults(threads)
                     ctx.progress.print_processing_items()
                     thread_resp_full = self._request_thread_or_load_from_cache(thread_id, cache_state)
                     self.api_fetching_ctx.process_thread(thread_resp_full)

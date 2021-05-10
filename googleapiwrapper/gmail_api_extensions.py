@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Set, Iterable
 from pythoncommons.file_utils import JsonFileUtils, FileUtils, FindResultType
 from pythoncommons.string_utils import auto_str
 
-from googleapiwrapper.gmail_domain import Thread, GenericObjectHelper as GH, ThreadField, MessageField
+from googleapiwrapper.gmail_domain import GenericObjectHelper as GH, ThreadField, MessageField
 from googleapiwrapper.utils import CommonUtils
 
 MESSAGE_DATE = "message_date"
