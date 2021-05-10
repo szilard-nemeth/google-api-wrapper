@@ -5,6 +5,9 @@ import gspread
 from gspread import SpreadsheetNotFound, WorksheetNotFound
 from oauth2client.service_account import ServiceAccountCredentials
 
+COLS = 100
+ROWS = 10000
+
 LOG = logging.getLogger(__name__)
 SCOPE = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
 
@@ -48,7 +51,8 @@ class GSheetWrapper:
 
     def write_data(self, header, data,
                    worksheet_name: str = None,
-                   clear_range=True):
+                   clear_range=True,
+                   create_not_existing_worksheet=False):
         worksheet_to_write: str = self.options.worksheets[0]
         if self.multi_worksheet and not worksheet_name:
             raise ValueError("GsheetWrapper is in multi-worksheet mode but worksheet name was not provided "
@@ -61,13 +65,24 @@ class GSheetWrapper:
                              f"Available worksheets: {self.options.worksheets}")
 
         # TODO add new column: Last updated date
+        sheet = None
         try:
             sheet = self.client.open(self.options.spreadsheet)
             worksheet = sheet.worksheet(worksheet_to_write)
         except SpreadsheetNotFound:
             raise ValueError("Spreadsheet was not found with name '{}'".format(self.options.spreadsheet))
         except WorksheetNotFound:
-            raise ValueError("Worksheet was not found with name '{}'".format(worksheet_to_write))
+            msg = "Worksheet was not found with name '{}'".format(worksheet_to_write)
+            if create_not_existing_worksheet:
+                LOG.warning(f"{msg}, but create_not_existing_worksheet is enabled so trying to create worksheet now.")
+                worksheet = sheet.add_worksheet(worksheet_to_write, ROWS, COLS)
+                if worksheet:
+                    LOG.info(f"Created worksheet with name '{worksheet_to_write}', rows: {ROWS}, columns: {COLS},")
+                else:
+                    raise ValueError(f"Failed to create worksheet with name '{worksheet_to_write}', "
+                                     f"rows: {ROWS}, columns: {COLS},")
+            else:
+                raise ValueError(msg)
 
         all_values = [header]
         all_values.extend(data)
