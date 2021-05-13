@@ -5,18 +5,20 @@ import gspread
 from gspread import SpreadsheetNotFound, WorksheetNotFound
 from oauth2client.service_account import ServiceAccountCredentials
 
-COLS = 100
-ROWS = 10000
+COLS = 10
+ROWS = 1000
 
 LOG = logging.getLogger(__name__)
 SCOPE = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
 
 
 class GSheetOptions:
-    def __init__(self, client_secret, spreadsheet: str, worksheet: str):
+    def __init__(self, client_secret, spreadsheet: str, worksheet: str = None):
         self.client_secret = client_secret
         self.spreadsheet: str = spreadsheet
-        self.worksheets: List[str] = [worksheet]
+        self.worksheets: List[str] = []
+        if worksheet:
+            self.worksheets.append(worksheet)
 
     def add_worksheet(self, ws: str):
         self.worksheets.append(ws)
@@ -35,11 +37,14 @@ class GSheetWrapper:
     A1 = "A1"
     DEFAULT_RANGE_TO_CLEAR = 'A1:Z1000'
 
-    def __init__(self, options):
+    def __init__(self, options: GSheetOptions):
+        LOG.debug(f"GSheetWrapper options: {options}")
         if not isinstance(options, GSheetOptions):
             raise ValueError('options must be an instance of GSheetOptions!')
+        if not options.worksheets:
+            raise ValueError(f"Parameter options (type of {GSheetOptions.__name__} must include 1 or more worksheets "
+                             f"but it does not have any assigned.")
 
-        LOG.debug("GSheetWrapper options: %s", str(options))
         self.options = options
         self.multi_worksheet = True if len(self.options.worksheets) > 1 else False
 
