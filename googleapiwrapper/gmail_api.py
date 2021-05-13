@@ -329,6 +329,7 @@ class GmailWrapper:
         kwargs = self._get_new_kwargs()
         kwargs[ThreadField.ID.value] = thread_id
         kwargs[ThreadQueryParam.FORMAT.value] = fmt.value
+        # TODO print email subject
         LOG.info(f"Requesting gmail thread with ID '{thread_id}', format: {fmt.value}")
         tdata = self.threads_svc.get(**kwargs).execute()
         return tdata
