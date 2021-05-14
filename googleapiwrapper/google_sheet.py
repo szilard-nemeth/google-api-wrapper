@@ -54,6 +54,16 @@ class GSheetWrapper:
         self.creds = ServiceAccountCredentials.from_json_keyfile_name(options.client_secret, SCOPE)
         self.client = gspread.authorize(self.creds)
 
+    def read_data(self, worksheet_name: str, range=None) -> List[List[str]]:
+        try:
+            sheet = self.client.open(self.options.spreadsheet)
+            worksheet = sheet.worksheet(worksheet_name)
+            return worksheet.get(range)
+        except SpreadsheetNotFound:
+            raise ValueError("Spreadsheet was not found with name '{}'".format(self.options.spreadsheet))
+        except WorksheetNotFound:
+            raise ValueError("Worksheet was not found with name '{}'".format(worksheet_name))
+
     def write_data(self, header, data,
                    worksheet_name: str = None,
                    clear_range=True,
