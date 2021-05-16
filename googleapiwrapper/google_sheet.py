@@ -35,7 +35,7 @@ class GSheetOptions:
 
 class GSheetWrapper:
     A1 = "A1"
-    DEFAULT_RANGE_TO_CLEAR = 'A1:Z1000'
+    DEFAULT_RANGE_TO_CLEAR = 'A1:Z10000'
 
     def __init__(self, options: GSheetOptions):
         LOG.debug(f"GSheetWrapper options: {options}")
@@ -118,7 +118,7 @@ class GSheetWrapper:
         )
 
     def clear_range(self, sheet, sheet_title, worksheet_title):
-        range_to_clear = self.DEFAULT_RANGE_TO_CLEAR
+        range_to_clear = self._get_range_to_clear(self.DEFAULT_RANGE_TO_CLEAR, worksheet_title)
         LOG.info("Clearing all values from sheet '%s', worksheet: '%s', range: '%s'", sheet_title, worksheet_title,
                  range_to_clear)
         sheet.values_clear(range_to_clear)
@@ -126,4 +126,14 @@ class GSheetWrapper:
         # It seems somehow gspread "memorizes" the cleared range and will add the new rows after the range, regardless
         # of what range have been provided with the range parameter to 'values_update'
         # HACK: Clear range A1:A1
-        sheet.values_clear("A1:A1")
+        range_to_clear = self._get_range_to_clear("A1:A1", worksheet_title)
+        sheet.values_clear(range_to_clear)
+
+    @staticmethod
+    def _get_range_to_clear(range: str, worksheet: str):
+        # IMPORTANT: https://developers.google.com/sheets/api/guides/concepts#a1_notation
+        # A1:B2 refers to the first two cells in the top two rows of the first visible sheet.
+        # Sheet1!A1:B2 refers to the first two cells in the top two rows of Sheet1.
+        # The worksheet name has to be included because A1:B2 means the first visible worksheet.
+        range_to_clear = f"'{worksheet}'!{range}"
+        return range_to_clear
