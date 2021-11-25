@@ -1,12 +1,29 @@
 import logging
-from typing import List
+import os
+from enum import Enum
+from typing import List, Tuple, Dict
 
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 from pythoncommons.string_utils import auto_str, StringUtils
 
 from googleapiwrapper.google_auth import GoogleApiAuthorizer
 
 LOG = logging.getLogger(__name__)
+
+
+class DriveApiScope(Enum):
+    # https://developers.google.com/drive/api/v2/about-auth
+    DRIVE_PER_FILE_ACCESS = "https://www.googleapis.com/auth/drive.file"
+
+
+class DriveApiMimeType(Enum):
+    FILE = "application/vnd.google-apps.file"
+    FOLDER = "application/vnd.google-apps.folder"
+
+
+class NormalMimeType(Enum):
+    APPLICATION_OCTET_STREAM = "application/octet-stream"
 
 
 class DriveApiMimeTypes:
@@ -28,7 +45,8 @@ class DriveApiMimeTypes:
         "video/mp4": "Video (mp4)",
 
         "application/vnd.google-apps.spreadsheet": "Google sheet",
-        "application/vnd.google-apps.folder": "Google drive folder",
+        DriveApiMimeType.FOLDER: "Google drive folder",
+        DriveApiMimeType.FILE: "Google drive file",
         "application/vnd.google-apps.document": "Google doc",
         "application/vnd.google-apps.form": "Google form",
         "application/vnd.google-apps.presentation": "Google presentation",
@@ -59,7 +77,7 @@ class FileField:
     PRINTABLE_FIELD_DISPLAY_NAMES = ["Name", "Link", "Shared with me date", "Owner", "Type"]
     # FIELDS_TO_PRINT = [tup[0] for tup in FIELDS_TO_PRINT]
 
-    BASIC_FIELDS_COMMA_SEPARATED = ", ".join([ID, NAME])
+    BASIC_FIELDS_COMMA_SEPARATED = ", ".join([ID, NAME, F_OWNER])
     GOOGLE_API_FIELDS = [tup[0] for tup in _ALL_FIELDS_WITH_DISPLAY_NAME]
     GOOGLE_API_FIELDS_COMMA_SEPARATED = ", ".join(GOOGLE_API_FIELDS)
     FIELD_DISPLAY_NAMES = [tup[1] for tup in _ALL_FIELDS_WITH_DISPLAY_NAME]
@@ -128,37 +146,119 @@ class DriveApiWrapper:
                              credentials=self.authed_session.authed_creds)
         self.files_service = self.service.files()
 
-    def print_shared_files(self, page_size=DEFAULT_PAGE_SIZE, fields=None, order_by=DEFAULT_ORDER_BY):
-        files = self.get_shared_files(page_size=page_size, fields=fields, order_by=order_by)
-        for file in files:
-            LOG.info(u'{0} ({1})'.format(file[FileField.NAME], file[FileField.ID]))
-
-    def get_shared_files(self, page_size=DEFAULT_PAGE_SIZE, fields: List[str] = None, order_by: str = DEFAULT_ORDER_BY):
-        if not fields:
-            fields = FileField.BASIC_FIELDS_COMMA_SEPARATED
-        fields_str = self.get_field_names_with_pagination(fields)
-        return self.list_files_with_paging(self.QUERY_SHARED_WITH_ME, page_size, fields_str, order_by)
-
     @staticmethod
     def get_field_names_with_pagination(fields, resource_type='files'):
         # File fields are documented here: https://developers.google.com/drive/api/v3/reference/files#resource
         fields_str = "{res}({fields})".format(res=resource_type, fields=fields)
         return "{}, {}".format(GenericApiField.PAGING_NEXT_PAGE_TOKEN, fields_str)
 
-    def list_files_with_paging(self, query, page_size, fields, order_by):
+    def print_shared_files(self, page_size=DEFAULT_PAGE_SIZE, fields=None, order_by=DEFAULT_ORDER_BY):
+        files = self.get_shared_files(page_size=page_size, fields=fields, order_by=order_by)
+        for file in files:
+            LOG.info(u'{0} ({1})'.format(file[FileField.NAME], file[FileField.ID]))
+
+    def get_shared_files(self, page_size=DEFAULT_PAGE_SIZE, fields: List[str] = None, order_by: str = DEFAULT_ORDER_BY):
+        fields_str = self._get_field_names(fields)
+        return self.list_files_with_paging(self.QUERY_SHARED_WITH_ME, page_size, fields_str, order_by)
+
+    @staticmethod
+    def _get_field_names(fields):
+        if not fields:
+            fields = DriveApiWrapper._get_default_fields()
+        fields_str = DriveApiWrapper.get_field_names_with_pagination(fields)
+        return fields_str
+
+    @staticmethod
+    def _get_default_fields():
+        return FileField.GOOGLE_API_FIELDS_COMMA_SEPARATED
+
+    def get_files(self,
+                  filename: str,
+                  mime_type=DriveApiMimeType.FILE,
+                  page_size=DEFAULT_PAGE_SIZE,
+                  fields: List[str] = None,
+                  parent: str = None,
+                  just_not_trashed: bool = False,
+                  order_by: str = DEFAULT_ORDER_BY) -> List[DriveApiFile]:
+        fields_str = self._get_field_names(fields)
+        query: str = f"mimeType = '{mime_type.value}' and name = '{filename}'"
+        if parent:
+            query += f" and '{parent}' in parents"
+        if just_not_trashed:
+            query += " and trashed != true"
+        return self.list_files_with_paging(query, page_size, fields_str, order_by)
+
+    def list_files_with_paging(self, query, page_size, fields, order_by) -> List[DriveApiFile]:
         result_files = []
+        LOG.info("Listing files with query: %s. Page size: %s, Fields: %s, order by: %s",
+                 query, page_size, fields, order_by)
         request = self.files_service.list(q=query, pageSize=page_size, fields=fields, orderBy=order_by)
         while request is not None:
             files_doc = request.execute()
             if files_doc:
                 api_file_results = files_doc.get('files', [])
-                drive_api_files = [DriveApiWrapper._convert_to_drive_file_object(i) for i in api_file_results]
+                drive_api_files: List[DriveApiFile] = [DriveApiWrapper._convert_to_drive_file_object(i) for i in api_file_results]
                 result_files.extend(drive_api_files)
             else:
                 LOG.warning('No files found.')
             request = self.files_service.list_next(request, files_doc)
 
         return result_files
+
+    def upload_file(self, name_of_file: str, path_to_file: str, drive_path: str):
+        file_metadata = {'name': name_of_file}
+        parent_folder_id = None
+        if drive_path and drive_path != os.sep:
+            folder_structure: List[Tuple[str, str]] = self.create_folder_structure(drive_path)
+            parent_folder_id = folder_structure[-1][0]
+            file_metadata["parents"] = [parent_folder_id]
+
+        files: List[DriveApiFile] = self.get_files(name_of_file, mime_type=NormalMimeType.APPLICATION_OCTET_STREAM,
+                                                   parent=parent_folder_id,
+                                                   just_not_trashed=True)
+        if len(files) > 0:
+            for file in files:
+                # File exists, remove it as one Google drive folder can have multiple files with the same name!
+                request = self.files_service.delete(fileId=file.id)
+                response = request.execute()
+                print(response)
+
+        media_file = MediaFileUpload(path_to_file, mimetype=NormalMimeType.APPLICATION_OCTET_STREAM.value)
+        file = self.files_service.create(body=file_metadata,
+                                         media_body=media_file,
+                                         fields='id').execute()
+        LOG.info("File ID: %s", file.get('id'))
+
+    def create_folder_structure(self, path: str) -> List[Tuple[str, str]]:
+        folders = path.split(os.sep)
+        folders = [f for f in folders if f]
+        structure: List[Tuple[str, str]] = []
+        for folder_name in folders:
+            if len(structure) > 0:
+                parent_id = structure[-1][0]
+            else:
+                parent_id = None
+            folder_id: str = self.create_folder(folder_name, parent_id=parent_id)
+            structure.append((folder_id, folder_name))
+        return structure
+
+    def create_folder(self, name: str, parent_id) -> str:
+        folders: List[DriveApiFile] = self.get_files(name, mime_type=DriveApiMimeType.FOLDER)
+        if not folders:
+            file_metadata = {
+                'name': name,
+                'mimeType': DriveApiMimeType.FOLDER.value
+            }
+            if parent_id:
+                file_metadata['parents'] = [parent_id]
+            new_folder = self.files_service.create(body=file_metadata, fields='id').execute()
+            LOG.info('Folder ID: %s', new_folder.get('id'))
+            return new_folder.get('id')
+        elif len(folders) == 1:
+            return folders[0].id
+        else:
+            raise ValueError("Expected to find one folder with name '{}', "
+                             "but found multiple. Results: {}".format(name, folders))
 
     @classmethod
     def convert_mime_type(cls, mime_type):
@@ -178,10 +278,18 @@ class DriveApiWrapper:
         sharing_user_dict = item[FileField.SHARING_USER] if FileField.SHARING_USER in item else unknown_user
         sharing_user = DriveApiUser(sharing_user_dict)
 
-        return DriveApiFile(item[FileField.ID],
-                            item[FileField.NAME],
-                            item[FileField.LINK],
-                            item[FileField.CREATED_TIME],
-                            item[FileField.MODIFIED_TIME],
-                            item[FileField.SHARED_WITH_ME_TIME],
-                            item[FileField.MIMETYPE], owners, sharing_user)
+        return DriveApiFile(DriveApiWrapper._safe_get(item, FileField.ID),
+                            DriveApiWrapper._safe_get(item, FileField.NAME),
+                            DriveApiWrapper._safe_get(item, FileField.LINK),
+                            DriveApiWrapper._safe_get(item, FileField.CREATED_TIME),
+                            DriveApiWrapper._safe_get(item, FileField.MODIFIED_TIME),
+                            DriveApiWrapper._safe_get(item, FileField.SHARED_WITH_ME_TIME),
+                            DriveApiWrapper._safe_get(item, FileField.MIMETYPE),
+                            owners,
+                            sharing_user)
+
+    @staticmethod
+    def _safe_get(d: Dict[str, str], key:str):
+        if key not in d:
+            return None
+        return d[key]
