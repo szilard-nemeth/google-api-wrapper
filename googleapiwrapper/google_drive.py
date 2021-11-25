@@ -12,6 +12,11 @@ from googleapiwrapper.google_auth import GoogleApiAuthorizer
 LOG = logging.getLogger(__name__)
 
 
+class DuplicateFileHandlingMode(Enum):
+    REMOVE_AND_CREATE = "REMOVE_AND_CREATE"
+    ADD_NEW_REVISION = "ADD_NEW_REVISION"
+
+
 class DriveApiScope(Enum):
     # https://developers.google.com/drive/api/v2/about-auth
     DRIVE_PER_FILE_ACCESS = "https://www.googleapis.com/auth/drive.file"
@@ -205,29 +210,55 @@ class DriveApiWrapper:
 
         return result_files
 
-    def upload_file(self, name_of_file: str, path_to_file: str, drive_path: str):
+    def upload_file(self, name_of_file: str, path_to_file: str, drive_path: str,
+                    dupe_file_handling_mode: DuplicateFileHandlingMode = DuplicateFileHandlingMode.ADD_NEW_REVISION):
         file_metadata = {'name': name_of_file}
         parent_folder_id = None
+        parent_folder_name = "root"
         if drive_path and drive_path != os.sep:
             folder_structure: List[Tuple[str, str]] = self.create_folder_structure(drive_path)
             parent_folder_id = folder_structure[-1][0]
+            parent_folder_name = folder_structure[-1][1]
             file_metadata["parents"] = [parent_folder_id]
 
-        files: List[DriveApiFile] = self.get_files(name_of_file, mime_type=NormalMimeType.APPLICATION_OCTET_STREAM,
-                                                   parent=parent_folder_id,
-                                                   just_not_trashed=True)
-        if len(files) > 0:
-            for file in files:
-                # File exists, remove it as one Google drive folder can have multiple files with the same name!
-                request = self.files_service.delete(fileId=file.id)
-                response = request.execute()
-                print(response)
+        existing_files: List[DriveApiFile] = self.get_files(name_of_file,
+                                                            mime_type=NormalMimeType.APPLICATION_OCTET_STREAM,
+                                                            parent=parent_folder_id,
+                                                            just_not_trashed=True)
+        if not existing_files:
+            self._upload_and_create_new_file(file_metadata, path_to_file)
+            return
 
+        LOG.info("Found %d files with name '%s' under parent folder: %s.")
+        if len(existing_files) > 1:
+            LOG.warning("Falling back to duplicate file handling mode: REMOVE_AND_CREATE",
+                        len(existing_files), parent_folder_name)
+            dupe_file_handling_mode = DuplicateFileHandlingMode.REMOVE_AND_CREATE
+
+        if dupe_file_handling_mode == DuplicateFileHandlingMode.REMOVE_AND_CREATE:
+            self._remove_file_if_exists(existing_files, name_of_file, parent_folder_id)
+            self._upload_and_create_new_file(file_metadata, path_to_file)
+        elif dupe_file_handling_mode == DuplicateFileHandlingMode.ADD_NEW_REVISION:
+            media_file = MediaFileUpload(path_to_file, mimetype=NormalMimeType.APPLICATION_OCTET_STREAM.value)
+            file = self.files_service.update(fileId=existing_files[0].id,
+                                             media_body=media_file,
+                                             fields='id').execute()
+
+
+    def _upload_and_create_new_file(self, file_metadata, path_to_file):
         media_file = MediaFileUpload(path_to_file, mimetype=NormalMimeType.APPLICATION_OCTET_STREAM.value)
         file = self.files_service.create(body=file_metadata,
                                          media_body=media_file,
                                          fields='id').execute()
         LOG.info("File ID: %s", file.get('id'))
+
+    def _remove_file_if_exists(self, existing_files, name_of_file, parent_folder_id):
+        if len(existing_files) > 0:
+            for file in existing_files:
+                # File exists, remove it as one Google drive folder can have multiple files with the same name!
+                request = self.files_service.delete(fileId=file.id)
+                response = request.execute()
+                print(response)
 
     def create_folder_structure(self, path: str) -> List[Tuple[str, str]]:
         folders = path.split(os.sep)
