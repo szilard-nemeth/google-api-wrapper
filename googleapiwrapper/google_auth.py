@@ -113,5 +113,6 @@ class GoogleApiAuthorizer:
         return authed_session
 
     def _write_token(self, authed_session: AuthedSession):
+        FileUtils.ensure_dir_created(FileUtils.get_parent_dir_name(self.token_full_path))
         with open(self.token_full_path, 'wb') as token:
             pickle.dump(authed_session, token)
