@@ -210,23 +210,43 @@ class DriveApiWrapper:
 
         return result_files
 
-    def upload_file(self, name_of_file: str, path_to_file: str, drive_path: str,
+    def upload_file(self, path_to_local_file: str, drive_path: str,
                     dupe_file_handling_mode: DuplicateFileHandlingMode = DuplicateFileHandlingMode.ADD_NEW_REVISION):
-        file_metadata = {'name': name_of_file}
-        parent_folder_id = None
-        parent_folder_name = "root"
-        if drive_path and drive_path != os.sep:
-            folder_structure: List[Tuple[str, str]] = self.create_folder_structure(drive_path)
-            parent_folder_id = folder_structure[-1][0]
-            parent_folder_name = folder_structure[-1][1]
-            file_metadata["parents"] = [parent_folder_id]
+        invalid = False
+        components: List[str] = []
+        dirnames: List[str] = []
+        if not drive_path:
+            invalid = True
+        if not invalid:
+            # Assumption: Last part of path is the filename, not dir
+            components = drive_path.split(os.sep)
+            dirnames = [c for c in components[:-1] if c]
+            invalid = True if len(dirnames) == 0 else False
+        if invalid:
+            raise ValueError("Invalid Google Drive path. "
+                             "Expecting a normal file path with at least one component separated by '{}'!"
+                             "Given file path: {}".format(os.sep, drive_path))
 
-        existing_files: List[DriveApiFile] = self.get_files(name_of_file,
+        filename = components[-1]
+        file_metadata = {"name": filename}
+        if len(dirnames) > 0:
+            dirs_as_path = os.sep.join(dirnames)
+            folder_structure: List[Tuple[str, str]] = self.create_folder_structure(dirs_as_path)
+            last_folder = folder_structure[-1]
+            parent_folder_id = last_folder[0]
+            parent_folder_name = last_folder[1]
+            file_metadata["parents"] = [parent_folder_id]
+        else:
+            # One component pathname is just a filename, assuming parent = "root"
+            parent_folder_id = None
+            parent_folder_name = "root"
+
+        existing_files: List[DriveApiFile] = self.get_files(filename,
                                                             mime_type=NormalMimeType.APPLICATION_OCTET_STREAM,
                                                             parent=parent_folder_id,
                                                             just_not_trashed=True)
         if not existing_files:
-            self._upload_and_create_new_file(file_metadata, path_to_file)
+            self._upload_and_create_new_file(file_metadata, path_to_local_file)
             return
 
         LOG.info("Found %d files with name '%s' under parent folder: %s.")
@@ -236,14 +256,13 @@ class DriveApiWrapper:
             dupe_file_handling_mode = DuplicateFileHandlingMode.REMOVE_AND_CREATE
 
         if dupe_file_handling_mode == DuplicateFileHandlingMode.REMOVE_AND_CREATE:
-            self._remove_file_if_exists(existing_files, name_of_file, parent_folder_id)
-            self._upload_and_create_new_file(file_metadata, path_to_file)
+            self._remove_file_if_exists(existing_files, filename, parent_folder_id)
+            self._upload_and_create_new_file(file_metadata, path_to_local_file)
         elif dupe_file_handling_mode == DuplicateFileHandlingMode.ADD_NEW_REVISION:
-            media_file = MediaFileUpload(path_to_file, mimetype=NormalMimeType.APPLICATION_OCTET_STREAM.value)
+            media_file = MediaFileUpload(path_to_local_file, mimetype=NormalMimeType.APPLICATION_OCTET_STREAM.value)
             file = self.files_service.update(fileId=existing_files[0].id,
                                              media_body=media_file,
                                              fields='id').execute()
-
 
     def _upload_and_create_new_file(self, file_metadata, path_to_file):
         media_file = MediaFileUpload(path_to_file, mimetype=NormalMimeType.APPLICATION_OCTET_STREAM.value)
