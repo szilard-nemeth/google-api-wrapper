@@ -16,6 +16,7 @@ LOG = logging.getLogger(__name__)
 class DuplicateFileHandlingMode(Enum):
     REMOVE_AND_CREATE = "REMOVE_AND_CREATE"
     ADD_NEW_REVISION = "ADD_NEW_REVISION"
+    FAIL_FAST = "FAIL_FAST"
 
 
 class DriveApiScope(Enum):
@@ -144,12 +145,16 @@ class DriveApiFileParentInfo:
     parent_folder_name: str
     file_metadata: Dict[str, str]
 
+class DriveApiWrapperSessionSettings:
+
+
 
 class DriveApiWrapper:
     DEFAULT_API_VERSION = 'v3'
     DEFAULT_ORDER_BY = "sharedWithMeTime desc"
     QUERY_SHARED_WITH_ME = "sharedWithMe"
     DEFAULT_PAGE_SIZE = 100
+    PATH_TO_FOLDER_ID_CACHE: Dict[str, DriveApiFileParentInfo] = {}
 
     def __init__(self, authorizer: GoogleApiAuthorizer, api_version: str = None):
         self.authed_session = authorizer.authorize()
@@ -158,6 +163,21 @@ class DriveApiWrapper:
         self.service = build(authorizer.service_type.service_name, api_version,
                              credentials=self.authed_session.authed_creds)
         self.files_service = self.service.files()
+
+    def _add_to_path_cache(self, drive_path, parent_info: DriveApiFileParentInfo, add_parent=False):
+        if add_parent:
+            self._add_to_path_cache(os.path.dirname(drive_path), parent_info)
+
+        LOG.debug("Adding path '%s' to cache with parent info '%s'", drive_path, parent_info)
+        self.PATH_TO_FOLDER_ID_CACHE[drive_path] = parent_info
+
+    def _load_path_from_cache(self, drive_path, get_parent=False) -> DriveApiFileParentInfo or None:
+        if get_parent:
+            return self._load_path_from_cache(os.path.dirname(drive_path))
+        LOG.debug("Loading path '%s' from cache", drive_path)
+        if drive_path in self.PATH_TO_FOLDER_ID_CACHE:
+            return self.PATH_TO_FOLDER_ID_CACHE[drive_path]
+        return None
 
     @staticmethod
     def get_field_names_with_pagination(fields, resource_type='files'):
@@ -218,10 +238,31 @@ class DriveApiWrapper:
 
         return result_files
 
+    def does_file_exist(self, drive_path: str):
+        dirnames, filename = self._validate_upload_file_candidate(drive_path)
+        if drive_path not in self.PATH_TO_FOLDER_ID_CACHE:
+            folder_structure: List[Tuple[str, str]] = self.verify_all_dirs_exist(dirnames)
+            if len(folder_structure) != len(dirnames):
+                return False
+
+            parent_id = folder_structure[-1][0]
+            parent_folder_name = folder_structure[-1][1]
+            self._add_to_path_cache(drive_path, DriveApiFileParentInfo(parent_id, parent_folder_name))
+
+        parent_id = self._load_path_from_cache(drive_path)
+        existing_files: List[DriveApiFile] = self.get_files(filename,
+                                                            mime_type=NormalMimeType.APPLICATION_OCTET_STREAM,
+                                                            parent=parent_id,
+                                                            just_not_trashed=True)
+        return True if existing_files else False
+
     def upload_file(self, path_to_local_file: str, drive_path: str,
                     dupe_file_handling_mode: DuplicateFileHandlingMode = DuplicateFileHandlingMode.ADD_NEW_REVISION):
         dirnames, filename = self._validate_upload_file_candidate(drive_path)
-        parent_info: DriveApiFileParentInfo = self.prepare_dirs_and_file_metadata(dirnames, filename)
+        parent_info: DriveApiFileParentInfo = self._load_path_from_cache(drive_path, get_parent=True)
+        if not parent_info:
+            parent_info: DriveApiFileParentInfo = self.prepare_dirs_and_file_metadata(dirnames, filename)
+            self._add_to_path_cache(drive_path, parent_info, add_parent=True)
         existing_files: List[DriveApiFile] = self.get_files(filename,
                                                             mime_type=NormalMimeType.APPLICATION_OCTET_STREAM,
                                                             parent=parent_info.parent_folder_id,
@@ -230,7 +271,11 @@ class DriveApiWrapper:
             self._upload_and_create_new_file(parent_info.file_metadata, path_to_local_file)
             return
 
-        LOG.info("Found %d files with name '%s' under parent folder: %s.")
+        LOG.info("Found %d files with name '%s' under parent folder: %s.", len(existing_files), filename, parent_info.parent_folder_name)
+
+        if len(existing_files) > 0 and dupe_file_handling_mode == DuplicateFileHandlingMode.FAIL_FAST:
+            raise ValueError("Found files when not expected, see logs above! Duplicate file handling mode is set to: {}".format(dupe_file_handling_mode))
+
         if len(existing_files) > 1:
             LOG.warning("Falling back to duplicate file handling mode: REMOVE_AND_CREATE",
                         len(existing_files), parent_info.parent_folder_name)
@@ -254,11 +299,37 @@ class DriveApiWrapper:
         else:
             dirs_as_path = os.sep.join(dirnames)
             folder_structure: List[Tuple[str, str]] = self.create_folder_structure(dirs_as_path)
+
+            if len(folder_structure) != len(dirnames):
+                raise ValueError("Unexpected error happened. Created folder structure is different than requested dirs!"
+                                 "Folder structure: {}"
+                                 "Requested dirs: {}".format(folder_structure, dirnames))
+
             last_folder = folder_structure[-1]
             parent_folder_id = last_folder[0]
             parent_folder_name = last_folder[1]
             file_metadata["parents"] = [parent_folder_id]
         return DriveApiFileParentInfo(parent_folder_id, parent_folder_name, file_metadata)
+
+    def verify_all_dirs_exist(self, dirnames, just_not_trashed=True):
+        dirnames = [f for f in dirnames if f]
+        structure: List[Tuple[str, str]] = []
+        for folder_name in dirnames:
+            if len(structure) > 0:
+                parent_id = structure[-1][0]
+            else:
+                parent_id = None
+            found_folders: List[DriveApiFile] = self.get_files(folder_name,
+                                                               mime_type=DriveApiMimeType.FOLDER,
+                                                               parent=parent_id,
+                                                               just_not_trashed=True)
+            if len(found_folders) > 2:
+                raise ValueError("Expected to find one folder with name '{}', "
+                                 "but found multiple. Results: {}".format(folder_name, found_folders))
+            if not found_folders:
+                return structure
+            structure.append((found_folders[0].id, folder_name))
+        return structure
 
     @staticmethod
     def _validate_upload_file_candidate(drive_path):
@@ -302,11 +373,11 @@ class DriveApiWrapper:
                 parent_id = structure[-1][0]
             else:
                 parent_id = None
-            folder_id: str = self.create_folder(folder_name, parent_id=parent_id)
+            folder_id: str = self.create_or_find_folder(folder_name, parent_id=parent_id)
             structure.append((folder_id, folder_name))
         return structure
 
-    def create_folder(self, name: str, parent_id) -> str:
+    def create_or_find_folder(self, name: str, parent_id) -> str:
         folders: List[DriveApiFile] = self.get_files(name, mime_type=DriveApiMimeType.FOLDER)
         if not folders:
             file_metadata = {
@@ -319,6 +390,7 @@ class DriveApiWrapper:
             LOG.info('Folder ID: %s', new_folder.get('id'))
             return new_folder.get('id')
         elif len(folders) == 1:
+            LOG.debug("Found folder with name: %s, Drive link: %s, ID: %s", folders[0].name, folders[0].link, folders[0].id)
             return folders[0].id
         else:
             raise ValueError("Expected to find one folder with name '{}', "
