@@ -172,7 +172,7 @@ class DriveApiUser(dict):
 
 
 @auto_str
-class DriveApiFile(dict):
+class DriveApiFile:
     def __init__(
         self,
         id,
