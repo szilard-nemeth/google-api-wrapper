@@ -2,7 +2,7 @@ import logging
 import os
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Tuple, Dict
+from typing import List, Dict, Any, Tuple
 
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -183,7 +183,9 @@ class DriveApiFile:
         shared_with_me_date,
         mime_type,
         owners,
-        sharing_user: DriveApiUser,
+        sharing_user: DriveApiUser or None,
+        parents,
+        parent: Any = None,
     ):
         super(DriveApiFile, self).__init__()
         self.id = id
@@ -197,6 +199,12 @@ class DriveApiFile:
 
         sharing_user.name = StringUtils.replace_special_chars(sharing_user.name)
         self.sharing_user = sharing_user
+        self.parents = parents
+        self._parent = parent
+
+    @staticmethod
+    def create_root_api_file():
+        return DriveApiFile("N/A", "/", "N/A", "N/A", "N/A", "N/A", DriveApiMimeType.FOLDER, "N/A", None, None)
 
     def __repr__(self):
         return self.__str__()
@@ -598,7 +606,9 @@ class DriveApiWrapper:
 
     @classmethod
     def _convert_to_drive_file_object(cls, item) -> DriveApiFile:
-        list_of_owners_dicts = item["owners"]
+        list_of_owners_dicts = DriveApiWrapper._safe_get(item, FileField.F_OWNER)
+        if not list_of_owners_dicts:
+            list_of_owners_dicts = {}
         owners = [DriveApiUser(owner_dict) for owner_dict in list_of_owners_dicts]
 
         unknown_user = {
@@ -618,6 +628,7 @@ class DriveApiWrapper:
             DriveApiWrapper._safe_get(item, FileField.MIMETYPE),
             owners,
             sharing_user,
+            DriveApiWrapper._safe_get(item, FileField.PARENTS),
         )
 
     @staticmethod
