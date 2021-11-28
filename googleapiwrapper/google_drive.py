@@ -6,6 +6,7 @@ from typing import List, Tuple, Dict
 
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from pythoncommons.file_utils import FileUtils
 from pythoncommons.object_utils import ObjUtils
 from pythoncommons.string_utils import auto_str, StringUtils
 
@@ -65,6 +66,7 @@ class DriveApiMimeType(Enum):
 
 class NormalMimeType(Enum):
     APPLICATION_OCTET_STREAM = "application/octet-stream"
+    APPLICATION_JSON = "application/json"
 
 
 class DriveApiMimeTypes:
@@ -90,6 +92,16 @@ class DriveApiMimeTypes:
         "application/vnd.google-apps.presentation": "Google presentation",
         "application/vnd.google-apps.map": "Google map",
     }
+
+    EXT_TO_MIME_MAPPINGS = {"json": NormalMimeType.APPLICATION_JSON}
+
+    @classmethod
+    def get_mime_type_by_filename(cls, filename):
+        ext = FileUtils.get_file_extension(filename)
+        if ext in cls.EXT_TO_MIME_MAPPINGS:
+            return cls.EXT_TO_MIME_MAPPINGS[ext]
+        # Fallback to default MIME type
+        return NormalMimeType.APPLICATION_OCTET_STREAM
 
 
 class FileField:
