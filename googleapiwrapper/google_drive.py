@@ -308,6 +308,7 @@ class DriveApiWrapper:
     QUERY_SHARED_WITH_ME = "sharedWithMe"
     DEFAULT_PAGE_SIZE = 100
     DRIVE_API_FILE_CACHE: Dict[str, DriveApiFile] = {}
+    DRIVE_API_FILE_CACHE_BY_ID: Dict[str, DriveApiFile] = {}
 
     def __init__(
         self,
@@ -368,13 +369,22 @@ class DriveApiWrapper:
         return session_value
 
     def _add_dir_to_cache(self, dir_name, drive_file: DriveApiFile):
+        if not drive_file:
+            raise ValueError("Cannot add None object to cache! Dir name was: {}".format(dir_name))
         LOG.debug("Adding dir '%s' to cache, drive file: '%s'", dir_name, drive_file)
         self.DRIVE_API_FILE_CACHE[dir_name] = drive_file
+        self.DRIVE_API_FILE_CACHE_BY_ID[drive_file.id] = drive_file
 
     def _load_dir_from_cache(self, dir_name) -> DriveApiFile or None:
         LOG.debug("Loading dir '%s' from cache", dir_name)
         if dir_name in self.DRIVE_API_FILE_CACHE:
             return self.DRIVE_API_FILE_CACHE[dir_name]
+        return None
+
+    def _load_dir_from_cache_by_id(self, id: str) -> DriveApiFile or None:
+        LOG.debug("Loading dir from cache by id: %s", id)
+        if id in self.DRIVE_API_FILE_CACHE_BY_ID:
+            return self.DRIVE_API_FILE_CACHE_BY_ID[id]
         return None
 
     @staticmethod
@@ -411,6 +421,14 @@ class DriveApiWrapper:
     def get_file(self, drive_path):
         return self._get_file_internal(drive_path)
 
+    def get_files(self, expression, owner=None):
+        mimetype = DriveApiMimeTypes.get_mime_type_by_filename(expression)
+        return self._get_files(expression, mimetype=mimetype, resolve_parents=True)
+
+    def _get_file_by_id(self, id: str):
+        return self.files_service.get(fileId=id).execute()
+
+    @capture_single_operation_settings
     def _get_files(
         self,
         filename: str,
@@ -419,14 +437,22 @@ class DriveApiWrapper:
         fields: List[str] = None,
         parent: DriveApiFile = None,
         order_by: str = DEFAULT_ORDER_BY,
+        resolve_parents: bool = False,
     ) -> List[DriveApiFile]:
         fields_str = self._get_field_names(fields)
-        query: str = f"mimeType = '{mimetype.value}' and name = '{filename}'"
+        query: str = f"mimeType = '{mimetype.value}'"
+
+        if "*" in filename:
+            filename = filename.replace("*", "")
+            query += f" and name contains '{filename}'"
+        else:
+            query += f" and name = '{filename}'"
+
         if parent:
             query += f" and '{parent.id}' in parents"
         if self.final_settings.file_find_mode == FileFindMode.JUST_UNTRASHED:
             query += " and trashed != true"
-        return self.list_files_with_paging(query, page_size, fields_str, order_by)
+        return self.list_files_with_paging(query, page_size, fields_str, order_by, resolve_parents=resolve_parents)
 
     def _get_file_internal(self, drive_path) -> List[DriveApiFile]:
         dirnames, filename = self._validate_upload_file_candidate(drive_path)
@@ -441,7 +467,9 @@ class DriveApiWrapper:
         )
         return existing_files
 
-    def list_files_with_paging(self, query, page_size, fields, order_by) -> List[DriveApiFile]:
+    def list_files_with_paging(
+        self, query, page_size, fields, order_by, resolve_parents: bool = False
+    ) -> List[DriveApiFile]:
         result_files = []
         LOG.info(
             "Listing files with query: %s. Page size: %s, Fields: %s, order by: %s",
@@ -458,6 +486,18 @@ class DriveApiWrapper:
                 drive_api_files: List[DriveApiFile] = [
                     DriveApiWrapper._convert_to_drive_file_object(i) for i in api_file_results
                 ]
+                if resolve_parents:
+                    for drive_api_file in drive_api_files:
+                        if drive_api_file.parents:
+                            LOG.debug("Resolving parent of DriveApiFile: %s", drive_api_file)
+                            parent_id = drive_api_file.parents[0]
+                            if parent_id in self.DRIVE_API_FILE_CACHE_BY_ID:
+                                drive_api_file._parent = self._load_dir_from_cache_by_id(parent_id)
+                                continue
+                            get_result = self._get_file_by_id(parent_id)
+                            parent_api_file = DriveApiWrapper._convert_to_drive_file_object(get_result)
+                            drive_api_file._parent = parent_api_file
+                            self._add_dir_to_cache(parent_api_file.name, parent_api_file)
                 result_files.extend(drive_api_files)
             else:
                 LOG.warning("No files found.")
