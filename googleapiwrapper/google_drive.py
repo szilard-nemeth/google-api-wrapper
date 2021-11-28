@@ -43,9 +43,12 @@ def capture_single_operation_settings(func):
         if self:
             self.final_settings = self._evaluate_to_final_settings()
 
-        func(*args, **kwargs)
+        ret = func(*args, **kwargs)
 
+        # Post-call operations
         self.current_op_settings = None
+
+        return ret
 
     return wrapper
 
