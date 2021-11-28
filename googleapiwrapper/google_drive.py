@@ -114,6 +114,7 @@ class FileField:
     MIMETYPE = "mimeType"
     NAME = "name"
     ID = "id"
+    PARENTS = "parents"
 
     _ALL_FIELDS_WITH_DISPLAY_NAME = [
         (ID, "ID"),
@@ -124,6 +125,7 @@ class FileField:
         (MODIFIED_TIME, "Last modified time"),
         (SHARED_WITH_ME_TIME, "Shared with me date"),
         (F_OWNER, "Owner"),
+        (PARENTS, "Parents"),
     ]
 
     PRINTABLE_FIELD_DISPLAY_NAMES = [
