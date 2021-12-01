@@ -369,6 +369,7 @@ class DriveApiWrapper:
         return session_value
 
     def _add_dir_to_cache(self, dir_name, drive_file: DriveApiFile):
+        # TODO consider adding not only dir names as key but with dir name + google drive path?
         if not drive_file:
             raise ValueError("Cannot add None object to cache! Dir name was: {}".format(dir_name))
         LOG.debug("Adding dir '%s' to cache, drive file: '%s'", dir_name, drive_file)
@@ -527,7 +528,7 @@ class DriveApiWrapper:
         path_to_local_file: str,
         drive_path: str,
         op_settings: DriveApiWrapperSingleOperationSettings = None,
-    ):
+    ) -> DriveApiFile:
         dirnames, filename = self._validate_upload_file_candidate(drive_path)
         structure: DriveFileStructure = self._prepare_dirs(dirnames)
         parent_drive_file = structure.get_last_file_or_dir()
@@ -540,8 +541,7 @@ class DriveApiWrapper:
         )
         if not existing_files:
             file_metadata = {"name": filename, "parents": [parent_id]}
-            self._upload_and_create_new_file(filename, file_metadata, path_to_local_file)
-            return
+            return self._upload_and_create_new_file(filename, file_metadata, path_to_local_file)
 
         LOG.info(
             "Found %d files with name '%s' under parent folder: %s.",
@@ -568,13 +568,16 @@ class DriveApiWrapper:
         if dupe_file_handling_mode == DuplicateFileWriteResolutionMode.REMOVE_AND_CREATE:
             file_metadata = {"name": filename, "parents": [parent_id]}
             self._remove_file_if_exists(existing_files, filename, parent_drive_file.id)
-            self._upload_and_create_new_file(filename, file_metadata, path_to_local_file)
+            return self._upload_and_create_new_file(filename, file_metadata, path_to_local_file)
         elif dupe_file_handling_mode == DuplicateFileWriteResolutionMode.ADD_NEW_REVISION:
             media_file = MediaFileUpload(
                 path_to_local_file,
                 mimetype=DriveApiMimeTypes.get_mime_type_by_filename(filename).value,
             )
-            self.files_service.update(fileId=existing_files[0].id, media_body=media_file, fields="id").execute()
+            update_result = self.files_service.update(
+                fileId=existing_files[0].id, media_body=media_file, fields="id"
+            ).execute()
+            return self._convert_to_drive_file_object(update_result)
 
     def _prepare_dirs(
         self,
@@ -637,10 +640,11 @@ class DriveApiWrapper:
             )
         return dirnames, components[-1]
 
-    def _upload_and_create_new_file(self, filename, file_metadata, path_to_file):
+    def _upload_and_create_new_file(self, filename, file_metadata, path_to_file) -> DriveApiFile:
         media_file = MediaFileUpload(path_to_file, mimetype=DriveApiMimeTypes.get_mime_type_by_filename(filename).value)
         file = self.files_service.create(body=file_metadata, media_body=media_file, fields="id").execute()
         LOG.info("File ID: %s", file.get("id"))
+        return self._convert_to_drive_file_object(file)
 
     def _remove_file_if_exists(self, existing_files, name_of_file, parent_folder_id):
         if len(existing_files) > 0:
