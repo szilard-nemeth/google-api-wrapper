@@ -527,8 +527,10 @@ class DriveApiWrapper:
         self,
         path_to_local_file: str,
         drive_path: str,
+        fields: List[str] = None,
         op_settings: DriveApiWrapperSingleOperationSettings = None,
     ) -> DriveApiFile:
+        fields_str = self._get_field_names(fields)
         dirnames, filename = self._validate_upload_file_candidate(drive_path)
         structure: DriveFileStructure = self._prepare_dirs(dirnames)
         parent_drive_file = structure.get_last_file_or_dir()
@@ -538,10 +540,11 @@ class DriveApiWrapper:
             filename,
             mimetype=DriveApiMimeTypes.get_mime_type_by_filename(filename),
             parent=parent_drive_file,
+            fields=fields,
         )
         if not existing_files:
             file_metadata = {"name": filename, "parents": [parent_id]}
-            return self._upload_and_create_new_file(filename, file_metadata, path_to_local_file)
+            return self._upload_and_create_new_file(filename, file_metadata, path_to_local_file, fields=fields_str)
 
         LOG.info(
             "Found %d files with name '%s' under parent folder: %s.",
@@ -568,14 +571,14 @@ class DriveApiWrapper:
         if dupe_file_handling_mode == DuplicateFileWriteResolutionMode.REMOVE_AND_CREATE:
             file_metadata = {"name": filename, "parents": [parent_id]}
             self._remove_file_if_exists(existing_files, filename, parent_drive_file.id)
-            return self._upload_and_create_new_file(filename, file_metadata, path_to_local_file)
+            return self._upload_and_create_new_file(filename, file_metadata, path_to_local_file, fields=fields_str)
         elif dupe_file_handling_mode == DuplicateFileWriteResolutionMode.ADD_NEW_REVISION:
             media_file = MediaFileUpload(
                 path_to_local_file,
                 mimetype=DriveApiMimeTypes.get_mime_type_by_filename(filename).value,
             )
             update_result = self.files_service.update(
-                fileId=existing_files[0].id, media_body=media_file, fields="id"
+                fileId=existing_files[0].id, media_body=media_file, fields=fields_str
             ).execute()
             return self._convert_to_drive_file_object(update_result)
 
@@ -640,10 +643,10 @@ class DriveApiWrapper:
             )
         return dirnames, components[-1]
 
-    def _upload_and_create_new_file(self, filename, file_metadata, path_to_file) -> DriveApiFile:
+    def _upload_and_create_new_file(self, filename, file_metadata, path_to_file, fields: str) -> DriveApiFile:
         media_file = MediaFileUpload(path_to_file, mimetype=DriveApiMimeTypes.get_mime_type_by_filename(filename).value)
-        file = self.files_service.create(body=file_metadata, media_body=media_file, fields="id").execute()
-        LOG.info("File ID: %s", file.get("id"))
+        file = self.files_service.create(body=file_metadata, media_body=media_file, fields=fields).execute()
+        LOG.info("File ID: %s", file.get(FileField.ID))
         return self._convert_to_drive_file_object(file)
 
     def _remove_file_if_exists(self, existing_files, name_of_file, parent_folder_id):
@@ -673,13 +676,14 @@ class DriveApiWrapper:
         return structure
 
     def _create_or_find_folder(self, name: str, parent_drive_file: DriveApiFile) -> DriveApiFile:
+        fields_str = self._get_field_names(None)
         folders: List[DriveApiFile] = self._get_files(name, mimetype=DriveApiMimeType.FOLDER)
         if not folders:
             file_metadata = {"name": name, "mimeType": DriveApiMimeType.FOLDER.value}
             if parent_drive_file:
                 file_metadata["parents"] = [parent_drive_file.id]
-            new_folder = self.files_service.create(body=file_metadata, fields="id").execute()
-            LOG.info("Folder ID: %s", new_folder.get("id"))
+            new_folder = self.files_service.create(body=file_metadata, fields=fields_str).execute()
+            LOG.info("Folder ID: %s", new_folder.get(FileField.ID))
             return DriveApiWrapper._convert_to_drive_file_object(new_folder)
         elif len(folders) == 1:
             LOG.debug(
