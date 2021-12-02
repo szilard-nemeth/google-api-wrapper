@@ -395,13 +395,15 @@ class DriveApiWrapper:
 
     @staticmethod
     def get_field_names_with_pagination(fields, resource_type="files"):
-        fields_str = DriveApiWrapper.get_field_names(fields, resource_type=resource_type)
+        fields_str = DriveApiWrapper.get_field_names(fields, resource_type=resource_type, include_resource=True)
         return "{}, {}".format(GenericApiField.PAGING_NEXT_PAGE_TOKEN, fields_str)
 
     @staticmethod
-    def get_field_names(fields, resource_type="files"):
+    def get_field_names(fields, resource_type="files", include_resource=False):
         # File fields are documented here: https://developers.google.com/drive/api/v3/reference/files#resource
-        return f"{resource_type}({fields})"
+        if include_resource:
+            return f"{resource_type}({fields})"
+        return f"{fields}"
 
     def print_shared_files(self, page_size=DEFAULT_PAGE_SIZE, fields=None, order_by=DEFAULT_ORDER_BY):
         files = self.get_shared_files(page_size=page_size, fields=fields, order_by=order_by)
