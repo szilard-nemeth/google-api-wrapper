@@ -56,7 +56,7 @@ def capture_single_operation_settings(func):
 
 class DriveApiOperationType(Enum):
     QUERY = "QUERY"
-    UPLOAD = "UPLOAD"
+    UPLOAD_OR_CREATE = "UPLOAD_OR_CREATE"
 
 
 class DriveApiScope(Enum):
@@ -416,16 +416,16 @@ class DriveApiWrapper:
         fields: List[str] = None,
         order_by: str = DEFAULT_ORDER_BY,
     ):
-        fields_str = self._get_field_names(fields)
+        fields_str = self._get_field_names(fields, operation_type=DriveApiOperationType.QUERY)
         return self.list_files_with_paging(self.QUERY_SHARED_WITH_ME, page_size, fields_str, order_by)
 
     @staticmethod
-    def _get_field_names(fields, operation_type=DriveApiOperationType.QUERY):
+    def _get_field_names(fields, operation_type):
         if not fields:
             fields = DriveApiWrapper._get_default_fields()
         if operation_type == DriveApiOperationType.QUERY:
             return DriveApiWrapper.get_field_names_with_pagination(fields)
-        elif operation_type == DriveApiOperationType.UPLOAD:
+        elif operation_type == DriveApiOperationType.UPLOAD_OR_CREATE:
             return DriveApiWrapper.get_field_names(fields)
 
     @staticmethod
@@ -453,7 +453,7 @@ class DriveApiWrapper:
         order_by: str = DEFAULT_ORDER_BY,
         resolve_parents: bool = False,
     ) -> List[DriveApiFile]:
-        fields_str = self._get_field_names(fields)
+        fields_str = self._get_field_names(fields, operation_type=DriveApiOperationType.QUERY)
         query: str = f"mimeType = '{mimetype.value}'"
 
         if "*" in filename:
@@ -543,7 +543,7 @@ class DriveApiWrapper:
         fields: List[str] = None,
         op_settings: DriveApiWrapperSingleOperationSettings = None,
     ) -> DriveApiFile:
-        fields_str = self._get_field_names(fields, operation_type=DriveApiOperationType.UPLOAD)
+        fields_str = self._get_field_names(fields, operation_type=DriveApiOperationType.UPLOAD_OR_CREATE)
         dirnames, filename = self._validate_upload_file_candidate(drive_path)
         structure: DriveFileStructure = self._prepare_dirs(dirnames)
         parent_drive_file = structure.get_last_file_or_dir()
@@ -689,7 +689,7 @@ class DriveApiWrapper:
         return structure
 
     def _create_or_find_folder(self, name: str, parent_drive_file: DriveApiFile) -> DriveApiFile:
-        fields_str = self._get_field_names(None)
+        fields_str = self._get_field_names(None, DriveApiOperationType.UPLOAD_OR_CREATE)
         folders: List[DriveApiFile] = self._get_files(name, mimetype=DriveApiMimeType.FOLDER)
         if not folders:
             file_metadata = {"name": name, "mimeType": DriveApiMimeType.FOLDER.value}
