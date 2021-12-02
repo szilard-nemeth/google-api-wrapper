@@ -54,6 +54,11 @@ def capture_single_operation_settings(func):
     return wrapper
 
 
+class DriveApiOperationType(Enum):
+    QUERY = "QUERY"
+    UPLOAD = "UPLOAD"
+
+
 class DriveApiScope(Enum):
     # https://developers.google.com/drive/api/v2/about-auth
     DRIVE_PER_FILE_ACCESS = "https://www.googleapis.com/auth/drive.file"
@@ -390,9 +395,13 @@ class DriveApiWrapper:
 
     @staticmethod
     def get_field_names_with_pagination(fields, resource_type="files"):
-        # File fields are documented here: https://developers.google.com/drive/api/v3/reference/files#resource
-        fields_str = "{res}({fields})".format(res=resource_type, fields=fields)
+        fields_str = DriveApiWrapper.get_field_names(fields, resource_type=resource_type)
         return "{}, {}".format(GenericApiField.PAGING_NEXT_PAGE_TOKEN, fields_str)
+
+    @staticmethod
+    def get_field_names(fields, resource_type="files"):
+        # File fields are documented here: https://developers.google.com/drive/api/v3/reference/files#resource
+        return f"{resource_type}({fields})"
 
     def print_shared_files(self, page_size=DEFAULT_PAGE_SIZE, fields=None, order_by=DEFAULT_ORDER_BY):
         files = self.get_shared_files(page_size=page_size, fields=fields, order_by=order_by)
@@ -409,11 +418,13 @@ class DriveApiWrapper:
         return self.list_files_with_paging(self.QUERY_SHARED_WITH_ME, page_size, fields_str, order_by)
 
     @staticmethod
-    def _get_field_names(fields):
+    def _get_field_names(fields, operation_type=DriveApiOperationType.QUERY):
         if not fields:
             fields = DriveApiWrapper._get_default_fields()
-        fields_str = DriveApiWrapper.get_field_names_with_pagination(fields)
-        return fields_str
+        if operation_type == DriveApiOperationType.QUERY:
+            return DriveApiWrapper.get_field_names_with_pagination(fields)
+        elif operation_type == DriveApiOperationType.UPLOAD:
+            return DriveApiWrapper.get_field_names(fields)
 
     @staticmethod
     def _get_default_fields():
@@ -530,7 +541,7 @@ class DriveApiWrapper:
         fields: List[str] = None,
         op_settings: DriveApiWrapperSingleOperationSettings = None,
     ) -> DriveApiFile:
-        fields_str = self._get_field_names(fields)
+        fields_str = self._get_field_names(fields, operation_type=DriveApiOperationType.UPLOAD)
         dirnames, filename = self._validate_upload_file_candidate(drive_path)
         structure: DriveFileStructure = self._prepare_dirs(dirnames)
         parent_drive_file = structure.get_last_file_or_dir()
