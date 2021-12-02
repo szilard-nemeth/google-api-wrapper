@@ -31,17 +31,22 @@ class AuthedSession:
 
 
 class GoogleApiAuthorizer:
-    DEFAULT_SCOPES = ["https://www.googleapis.com/auth/userinfo.profile", "https://www.googleapis.com/auth/userinfo.email"]
+    DEFAULT_SCOPES = [
+        "https://www.googleapis.com/auth/userinfo.profile",
+        "https://www.googleapis.com/auth/userinfo.email",
+    ]
     # TODO If modifying these scopes, delete the file token.pickle.
     DEFAULT_WEBSERVER_PORT = 49555
 
-    def __init__(self,
-                 service_type: ServiceType,
-                 secret_basedir: str,
-                 project_name: str,
-                 account_email: str,
-                 scopes: List[str] = None,
-                 server_port: int = DEFAULT_WEBSERVER_PORT):
+    def __init__(
+        self,
+        service_type: ServiceType,
+        secret_basedir: str,
+        project_name: str,
+        account_email: str,
+        scopes: List[str] = None,
+        server_port: int = DEFAULT_WEBSERVER_PORT,
+    ):
         self.account_email = account_email
         self.secret_basedir = secret_basedir
         self.service_type = service_type
@@ -50,23 +55,28 @@ class GoogleApiAuthorizer:
         self.server_port = server_port
         self.token_full_path = self._get_file_full_path(cred_file_type=CredentialsFileType.TOKEN_PICKLE)
         self.credentials_full_path = self._get_file_full_path(cred_file_type=CredentialsFileType.CLIENT_SECRET)
-        LOG.info(f"Configuration of {type(self).__name__}:\n"
-                 f"Secret basedir: {self.secret_basedir}\n"
-                 f"Project name: {self.project_name}\n"
-                 f"Account email: {self.account_email}\n"
-                 f"Scopes: {self.scopes}\n"
-                 f"Server port: {self.server_port}\n"
-                 f"Token file path (read/write): {self.token_full_path}\n"
-                 f"Credentials file path (read-only): {self.credentials_full_path}\n")
+        LOG.info(
+            f"Configuration of {type(self).__name__}:\n"
+            f"Secret basedir: {self.secret_basedir}\n"
+            f"Project name: {self.project_name}\n"
+            f"Account email: {self.account_email}\n"
+            f"Scopes: {self.scopes}\n"
+            f"Server port: {self.server_port}\n"
+            f"Token file path (read/write): {self.token_full_path}\n"
+            f"Credentials file path (read-only): {self.credentials_full_path}\n"
+        )
 
-    def _get_file_full_path(self,
-                            cred_file_type: CredentialsFileType):
+    def _get_file_full_path(self, cred_file_type: CredentialsFileType):
         account_dirname = CommonUtils.convert_email_address_to_dirname(self.account_email)
         if cred_file_type == CredentialsFileType.CLIENT_SECRET:
             return FileUtils.join_path(self.secret_basedir, self.project_name, f"client_secret_{account_dirname}.json")
         elif cred_file_type == CredentialsFileType.TOKEN_PICKLE:
-            return FileUtils.join_path(self.secret_basedir, self.project_name, "tokenpickles",
-                                       f"token_{self.project_name}_{account_dirname}.pickle")
+            return FileUtils.join_path(
+                self.secret_basedir,
+                self.project_name,
+                "tokenpickles",
+                f"token_{self.project_name}_{account_dirname}.pickle",
+            )
 
     def _set_scopes(self, scopes):
         self.scopes = scopes
@@ -79,8 +89,14 @@ class GoogleApiAuthorizer:
 
     def authorize(self) -> AuthedSession:
         authed_session: AuthedSession = self._load_token()
-        # If there are no (valid) credentials available, let the user log in.
-        if not authed_session or not authed_session.authed_creds or not authed_session.authed_creds.valid:
+        authed_session = authed_session
+        authed_session_authed_creds = authed_session.authed_creds
+        creds_valid = authed_session.authed_creds.valid
+        locals = vars()
+        del locals["authed_session"]
+        LOG.debug("Session details: %s", locals)
+        if not authed_session or not authed_session_authed_creds or not creds_valid:
+            # If there are no (valid) credentials available, let the user log in.
             authed_session = self._handle_login(authed_session)
         return authed_session
 
@@ -92,7 +108,7 @@ class GoogleApiAuthorizer:
         """
         authed_session: AuthedSession or None = None
         if os.path.exists(self.token_full_path):
-            with open(self.token_full_path, 'rb') as token:
+            with open(self.token_full_path, "rb") as token:
                 authed_session = pickle.load(token)
         return authed_session
 
@@ -103,10 +119,10 @@ class GoogleApiAuthorizer:
                 creds.refresh(Request())
         else:
             flow = InstalledAppFlow.from_client_secrets_file(self.credentials_full_path, self.scopes)
-            authed_creds: Credentials = flow.run_local_server(port=self.server_port, prompt='consent')
+            authed_creds: Credentials = flow.run_local_server(port=self.server_port, prompt="consent")
 
             session = flow.authorized_session()
-            profile_info = session.get('https://www.googleapis.com/userinfo/v2/me').json()
+            profile_info = session.get("https://www.googleapis.com/userinfo/v2/me").json()
             authed_session = AuthedSession(authed_creds, profile_info["email"], profile_info["name"], self.project_name)
         # Save the credentials for the next run
         self._write_token(authed_session)
@@ -114,5 +130,5 @@ class GoogleApiAuthorizer:
 
     def _write_token(self, authed_session: AuthedSession):
         FileUtils.ensure_dir_created(FileUtils.get_parent_dir_name(self.token_full_path))
-        with open(self.token_full_path, 'wb') as token:
+        with open(self.token_full_path, "wb") as token:
             pickle.dump(authed_session, token)
