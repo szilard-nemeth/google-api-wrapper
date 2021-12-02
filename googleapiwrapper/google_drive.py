@@ -707,6 +707,7 @@ class DriveApiWrapper:
 
     @classmethod
     def _convert_to_drive_file_object(cls, item) -> DriveApiFile:
+        LOG.debug("Converting item to %s. Object data: %s", DriveApiFile.__name__, item)
         list_of_owners_dicts = DriveApiWrapper._safe_get(item, FileField.F_OWNER)
         if not list_of_owners_dicts:
             list_of_owners_dicts = {}
