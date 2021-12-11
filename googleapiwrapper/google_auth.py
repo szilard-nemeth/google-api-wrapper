@@ -107,6 +107,7 @@ class GoogleApiAuthorizer:
         time.
         """
         authed_session: AuthedSession or None = None
+        LOG.debug("Loading token from file: %s", self.token_full_path)
         if os.path.exists(self.token_full_path):
             with open(self.token_full_path, "rb") as token:
                 authed_session = pickle.load(token)
