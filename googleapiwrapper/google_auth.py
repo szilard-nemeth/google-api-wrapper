@@ -89,12 +89,16 @@ class GoogleApiAuthorizer:
 
     def authorize(self) -> AuthedSession:
         authed_session: AuthedSession = self._load_token()
-        authed_session = authed_session
-        authed_session_authed_creds = authed_session.authed_creds
-        creds_valid = authed_session.authed_creds.valid
+
         locals = vars()
         del locals["authed_session"]
         LOG.debug("Session details: %s", locals)
+
+        if not authed_session:
+            authed_session = self._handle_login(authed_session)
+
+        authed_session_authed_creds = authed_session.authed_creds
+        creds_valid = authed_session.authed_creds.valid
         if not authed_session or not authed_session_authed_creds or not creds_valid:
             # If there are no (valid) credentials available, let the user log in.
             authed_session = self._handle_login(authed_session)
