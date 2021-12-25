@@ -3,3 +3,4 @@ credentials.json
 token.pickle
 venv
 junit
+/build/

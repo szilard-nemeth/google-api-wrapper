@@ -13,3 +13,6 @@ pre-commit
 
 # Python 2
 pathlib
+
+# google-api-python-client
+setuptools>=40.3.0
