@@ -303,11 +303,12 @@ class GSheetWrapper:
             LOG.debug("%s column was found with index: %d", type_of_column, column_idx)
         return column_idx
 
-    def update_issue_with_results(self, issue, date_str, status):
+    def update_issue_with_results(self, issue, date_str, status: str):
         if not self.sheet:
             raise ValueError("Sheet data is not yet fetched! Please invoke 'fetch' method first!")
 
         if issue not in self.issue_to_cellupdate:
+            # TODO This should be an error + list all jira IDs without stored cell IDs
             LOG.info("No cell update will be performed for issue %s", issue)
             return
 
@@ -320,4 +321,4 @@ class GSheetWrapper:
 
         if self.options.do_update_status:
             LOG.info("[%s] Updating GSheet cell '%s' with value: '%s' (overall status)", issue, cu.status_cell, status)
-            self.sheet.update_acell(cu.status_cell, status.status)
+            self.sheet.update_acell(cu.status_cell, status)
