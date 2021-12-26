@@ -1,6 +1,6 @@
 import logging
 from pprint import pformat
-from typing import List
+from typing import List, Dict
 
 import gspread
 from gspread import SpreadsheetNotFound, WorksheetNotFound
@@ -20,6 +20,12 @@ SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/au
 class CellWrapper:
     cell_id: str
     cell: Cell
+
+
+@dataclass
+class GenericCellUpdate:
+    issue_id: str
+    values: Dict[str, str]
 
 
 class CellUpdateForIssue:
@@ -327,7 +333,7 @@ class GSheetWrapper:
             LOG.debug("%s column was found with index: %d", type_of_column, column_idx)
         return column_idx
 
-    def update_issue_with_results(self, issue, date_str, status: str):
+    def update_issue_with_results(self, issue, date_str, status: str, batch_mode: bool = False):
         if not self.sheet:
             raise ValueError("Sheet data is not yet fetched! Please invoke 'fetch' method first!")
 
@@ -335,14 +341,34 @@ class GSheetWrapper:
             # TODO This should be an error + list all jira IDs without stored cell IDs
             LOG.info("No cell update will be performed for issue %s", issue)
             return
+        self._update_with_results(issue, date_str, status)
 
+    def _update_with_results(self, issue, date_str, status):
         cu = self.issue_to_cellupdate[issue]
         if self.options.do_update_date:
             LOG.info(
                 "[%s] Updating GSheet cell '%s' with value: '%s' (update date)", issue, cu.update_date_cell, date_str
             )
             self.sheet.update_acell(cu.update_date_cell, date_str)
-
         if self.options.do_update_status:
             LOG.info("[%s] Updating GSheet cell '%s' with value: '%s' (overall status)", issue, cu.status_cell, status)
             self.sheet.update_acell(cu.status_cell, status)
+
+    def update_issues_with_results(self, cell_updates: List[GenericCellUpdate]):
+        for cell_update in cell_updates:
+            if cell_update.issue_id not in self.issue_to_cellupdate:
+                # TODO This should be an error + list all jira IDs without stored cell IDs
+                LOG.info("No cell update will be performed for issue %s", cell_update.issue_id)
+                continue
+            cu = self.issue_to_cellupdate[cell_update.issue_id]
+            if self.options.do_update_date:
+                cu.update_date_cell.cell.value = cell_update.values["update_date"]
+            if self.options.do_update_status:
+                cu.status_cell.cell.value = cell_update.values["status"]
+
+        cell_list: List[Cell] = []
+        if self.options.do_update_status:
+            cell_list.extend([cu.status_cell.cell for cu in self.issue_to_cellupdate.values()])
+        if self.options.do_update_date:
+            cell_list.extend([cu.update_date_cell.cell for cu in self.issue_to_cellupdate.values()])
+        self.sheet.update_cells(cell_list)
