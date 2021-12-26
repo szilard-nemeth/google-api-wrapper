@@ -6,6 +6,8 @@ import gspread
 from gspread import SpreadsheetNotFound, WorksheetNotFound
 from gspread.utils import rowcol_to_a1
 from oauth2client.service_account import ServiceAccountCredentials
+from dataclasses import dataclass
+from gspread.models import Cell
 
 COLS = 10
 ROWS = 1000
@@ -14,11 +16,17 @@ LOG = logging.getLogger(__name__)
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
 
+@dataclass
+class CellWrapper:
+    cell_id: str
+    cell: Cell
+
+
 class CellUpdateForIssue:
-    def __init__(self, issue, update_date_cell, status_cell):
+    def __init__(self, issue, update_date_cell: CellWrapper, status_cell: CellWrapper):
         self.issue = issue
-        self.update_date_cell = update_date_cell
-        self.status_cell = status_cell
+        self.update_date_cell: CellWrapper = update_date_cell
+        self.status_cell: CellWrapper = status_cell
 
     def __repr__(self):
         return repr((self.issue, self.update_date_cell, self.status_cell))
@@ -244,6 +252,8 @@ class GSheetWrapper:
             self.options.do_update_status = False
 
         rows = sheet.get_all_records()
+        cells = sheet.range("A1:W1000")
+        range_idx_diff = (ord("W") - ord("A")) + 1
         LOG.debug("Received data from sheet %s: %s", worksheet, pformat(rows))
 
         # Check column is found
@@ -264,19 +274,33 @@ class GSheetWrapper:
 
         # 1 because of 0-based col indexing from header
         idx_correction_col = 1
+
+        curr_status_cell_idx = 0
+        curr_update_date_cell_idx = 0
         for idx, row in enumerate(rows):
             issue = row[jira_col]
             issues.append(issue)
 
-            update_date_cell_id, status_cell_id = None, None
+            update_date_cell_id: str = None
+            status_cell_id: str = None
             if self.options.do_update_date:
                 update_date_cell_id = rowcol_to_a1(idx + idx_correction_row, update_date_col_idx + idx_correction_col)
             if self.options.do_update_status:
                 status_cell_id = rowcol_to_a1(idx + idx_correction_row, status_col_idx + idx_correction_col)
 
             # If update is required for any cell, we need to store a CellUpdateForIssue object, otherwise don't store it
+            cell_wrapper_update_date, cell_wrapper_status = None, None
             if update_date_cell_id or status_cell_id:
-                self.issue_to_cellupdate[issue] = CellUpdateForIssue(issue, update_date_cell_id, status_cell_id)
+                row_displacement = (idx + 1) * range_idx_diff  # +1: Skip the header
+                if self.options.do_update_date:
+                    curr_update_date_cell_idx = row_displacement + update_date_col_idx
+                    cell_wrapper_update_date = CellWrapper(status_cell_id, cells[curr_update_date_cell_idx])
+                if self.options.do_update_status:
+                    curr_status_cell_idx = row_displacement + status_col_idx
+                    cell_wrapper_status = CellWrapper(update_date_cell_id, cells[curr_status_cell_idx])
+                self.issue_to_cellupdate[issue] = CellUpdateForIssue(
+                    issue, cell_wrapper_update_date, cell_wrapper_status
+                )
 
         LOG.debug("Issue to CellUpdate mappings: %s", self.issue_to_cellupdate)
         LOG.debug("Found Jira issue from GSheet: %s", issues)
