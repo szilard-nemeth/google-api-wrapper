@@ -347,12 +347,15 @@ class GSheetWrapper:
         cu = self.issue_to_cellupdate[issue]
         if self.options.do_update_date:
             LOG.info(
-                "[%s] Updating GSheet cell '%s' with value: '%s' (update date)", issue, cu.update_date_cell, date_str
+                "[%s] Updating GSheet cell '%s' with value: '%s' (update date)",
+                issue,
+                cu.update_date_cell.cell_id,
+                date_str,
             )
-            self.sheet.update_acell(cu.update_date_cell, date_str)
+            self.sheet.update_acell(cu.update_date_cell.cell_id, date_str)
         if self.options.do_update_status:
             LOG.info("[%s] Updating GSheet cell '%s' with value: '%s' (overall status)", issue, cu.status_cell, status)
-            self.sheet.update_acell(cu.status_cell, status)
+            self.sheet.update_acell(cu.status_cell.cell_id, status)
 
     def update_issues_with_results(self, cell_updates: List[GenericCellUpdate]):
         for cell_update in cell_updates:
