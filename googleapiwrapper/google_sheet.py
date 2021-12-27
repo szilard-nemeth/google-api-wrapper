@@ -3,11 +3,11 @@ from pprint import pformat
 from typing import List, Dict
 
 import gspread
-from gspread import SpreadsheetNotFound, WorksheetNotFound
+from gspread import SpreadsheetNotFound, WorksheetNotFound, Cell
 from gspread.utils import rowcol_to_a1
 from oauth2client.service_account import ServiceAccountCredentials
 from dataclasses import dataclass
-from gspread.models import Cell
+
 
 COLS = 10
 ROWS = 1000
