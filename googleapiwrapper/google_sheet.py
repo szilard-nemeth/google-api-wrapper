@@ -98,13 +98,13 @@ class GSheetOptions:
             self.__class__.__name__
             + " { "
             + "spreadsheet: "
-            + self.spreadsheet
+            + str(self.spreadsheet)
             + ", worksheets: "
             + str(self.worksheets)
             + ", jira_column: "
-            + self.jira_column
+            + str(self.jira_column)
             + ", update_date_column: "
-            + self.update_date_column
+            + str(self.update_date_column)
             + ", status_column: "
             + str(self.status_column)
             + " }"
