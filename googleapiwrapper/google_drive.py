@@ -324,15 +324,18 @@ class DriveApiWrapper:
         self.authed_session = authorizer.authorize()
         if not api_version:
             api_version = authorizer.service_type.default_api_version
-        self.service = build(
-            authorizer.service_type.service_name,
-            api_version,
-            credentials=self.authed_session.authed_creds,
-        )
+        self.service = self._build_service(api_version, authorizer)
         self.files_service = self.service.files()
         self.session_settings: DriveApiWrapperSessionSettings or None = session_settings
         self.current_op_settings: DriveApiWrapperSingleOperationSettings or None = None
         self.final_settings: _DriveApiWrapperFinalSettings or None = None
+
+    def _build_service(self, api_version, authorizer):
+        return build(
+            authorizer.service_type.service_name,
+            api_version,
+            credentials=self.authed_session.authed_creds,
+        )
 
     def _evaluate_to_final_settings(self) -> _DriveApiWrapperFinalSettings:
         LOG.debug("Current session settings: %s", self.session_settings)
