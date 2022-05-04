@@ -334,6 +334,16 @@ class GSheetWrapper:
             LOG.debug("%s column was found with index: %d", type_of_column, column_idx)
         return column_idx
 
+    def get_column_indices_of_header(self, header: List[str]):
+        result = {}
+        for col_name in header:
+            LOG.debug("Fetching column index of '%s'", col_name)
+            column_idx = header.index(col_name)
+            if column_idx > -1:
+                LOG.debug("Column '%s' was found with index: %d", col_name, column_idx)
+            result[col_name] = column_idx
+        return result
+
     def update_issue_with_results(self, issue, date_str, status: str, batch_mode: bool = False):
         if not self.sheet:
             raise ValueError("Sheet data is not yet fetched! Please invoke 'fetch' method first!")
