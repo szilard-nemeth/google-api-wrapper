@@ -113,6 +113,7 @@ class GSheetOptions:
 
 class GSheetWrapper:
     A1 = "A1"
+    A2 = "A2"
     DEFAULT_RANGE_TO_CLEAR = "A1:Z10000"
 
     def __init__(self, options: GSheetOptions):
@@ -150,12 +151,81 @@ class GSheetWrapper:
         self, header, data, worksheet_name: str = None, clear_range=True, create_not_existing_worksheet=False
     ):
         worksheet_to_write: str = self.options.worksheets[0]
+        sheet, worksheet, worksheet_to_write = self._init_sheet_and_worksheet(
+            create_not_existing_worksheet, worksheet_name, worksheet_to_write
+        )
+
+        all_values = [header]
+        all_values.extend(data)
+
+        sheet_title = sheet.title
+        worksheet_title = worksheet.title
+        if clear_range:
+            self.clear_range(sheet, sheet_title, worksheet_title)
+
+        col_letter = chr(ord("a") + len(header) - 1).upper()
+        rows = len(all_values)
+        range_to_update = "{}:{}{}".format(self.A1, col_letter, rows)
+        LOG.info(
+            "Adding values to sheet '%s', worksheet: '%s', range: '%s'", sheet_title, worksheet_title, range_to_update
+        )
+        sheet.values_update(
+            "{}!{}".format(worksheet_to_write, range_to_update),
+            params={"valueInputOption": "RAW"},
+            body={"values": all_values},
+        )
+
+    def write_data_to_new_rows(
+        self,
+        header,
+        rows,
+        worksheet_name: str = None,
+        clear_range=True,
+        create_not_existing_worksheet=False,
+        skip_header=True,
+        clear_format=True,
+    ):
+        worksheet_to_write: str = self.options.worksheets[0]
+        sheet, worksheet, worksheet_to_write = self._init_sheet_and_worksheet(
+            create_not_existing_worksheet, worksheet_name, worksheet_to_write
+        )
+        sheet_title = sheet.title
+        worksheet_title = worksheet.title
+        if clear_range:
+            self.clear_range(sheet, sheet_title, worksheet_title)
+
+        from_row = 2 if skip_header else 1
+        from_ref = self.A2 if skip_header else self.A1
+        col_letter = chr(ord("a") + len(header) - 1).upper()
+        range_to_update = f"{from_ref}:{col_letter}{len(rows)}"
+        LOG.info(
+            "Adding values to sheet '%s', worksheet: '%s', range: '%s'", sheet_title, worksheet_title, range_to_update
+        )
+
+        worksheet.insert_rows(rows, row=from_row, value_input_option="RAW")
+        if clear_format:
+            self._clear_format(worksheet, range_to_update)
+
+    def _clear_format(self, worksheet, range):
+        worksheet.format(
+            range,
+            {
+                "backgroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
+                # "horizontalAlignment": "LEFT",
+                "textFormat": {
+                    "foregroundColor": {"red": 0.0, "green": 0.0, "blue": 0.0},
+                    "fontSize": 10,
+                    "bold": False,
+                },
+            },
+        )
+
+    def _init_sheet_and_worksheet(self, create_not_existing_worksheet, worksheet_name, worksheet_to_write):
         if self.multi_worksheet and not worksheet_name:
             raise ValueError(
                 "GsheetWrapper is in multi-worksheet mode but worksheet name was not provided "
                 f"so can't decide where to write data. Available worksheets: {self.options.worksheets}"
             )
-
         if worksheet_name:
             worksheet_to_write = worksheet_name
         if worksheet_to_write not in self.options.worksheets:
@@ -163,7 +233,6 @@ class GSheetWrapper:
                 f"Provided worksheet name '{worksheet_name}' is not available. "
                 f"Available worksheets: {self.options.worksheets}"
             )
-
         # TODO add new column: Last updated date
         sheet = None
         try:
@@ -185,26 +254,7 @@ class GSheetWrapper:
                     )
             else:
                 raise ValueError(msg)
-
-        all_values = [header]
-        all_values.extend(data)
-
-        sheet_title = sheet.title
-        worksheet_title = worksheet.title
-        if clear_range:
-            self.clear_range(sheet, sheet_title, worksheet_title)
-
-        col_letter = chr(ord("a") + len(header) - 1).upper()
-        rows = len(all_values)
-        range_to_update = "{}:{}{}".format(self.A1, col_letter, rows)
-        LOG.info(
-            "Adding values to sheet '%s', worksheet: '%s', range: '%s'", sheet_title, worksheet_title, range_to_update
-        )
-        sheet.values_update(
-            "{}!{}".format(worksheet_to_write, range_to_update),
-            params={"valueInputOption": "RAW"},
-            body={"values": all_values},
-        )
+        return sheet, worksheet, worksheet_to_write
 
     def clear_range(self, sheet, sheet_title, worksheet_title):
         range_to_clear = self._get_range_to_clear(self.DEFAULT_RANGE_TO_CLEAR, worksheet_title)
