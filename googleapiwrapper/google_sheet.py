@@ -8,6 +8,7 @@ from gspread.utils import rowcol_to_a1
 from oauth2client.service_account import ServiceAccountCredentials
 from dataclasses import dataclass
 
+from pythoncommons.file_utils import FileUtils
 
 COLS = 10
 ROWS = 1000
@@ -132,6 +133,9 @@ class GSheetWrapper:
 
         if not options.client_secret:
             raise ValueError("Client secret should be specified!")
+        if not FileUtils.does_file_exist(options.client_secret):
+            raise ValueError("Client secret file does not exist!")
+        FileUtils.ensure_file_exists_and_readable(options.client_secret)
 
         self.creds = ServiceAccountCredentials.from_json_keyfile_name(options.client_secret, SCOPE)
         self.client = gspread.authorize(self.creds)
