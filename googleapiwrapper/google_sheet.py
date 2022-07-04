@@ -286,21 +286,7 @@ class GSheetWrapper:
         return range_to_clear
 
     def fetch_jira_data(self):
-        if not self.options.single_worksheet_mode:
-            raise ValueError(
-                "Fetching Jira data only works with single worksheet mode. Current worksheets: %s",
-                self.options.worksheets,
-            )
-        worksheet = self.options.worksheets[0]
-        LOG.info("Fetching jira data from worksheet: %s", worksheet)
-
-        try:
-            sheet = self.client.open(self.options.spreadsheet).worksheet(worksheet)
-        except SpreadsheetNotFound:
-            raise ValueError("Spreadsheet was not found with name '{}'".format(self.options.spreadsheet))
-        except WorksheetNotFound:
-            raise ValueError("Worksheet was not found with name '{}'".format(worksheet))
-
+        sheet, worksheet = self._open_sheet()
         header = sheet.row_values(1)
         LOG.debug("Fetched spreadsheet header: %s", header)
 
@@ -369,6 +355,22 @@ class GSheetWrapper:
         self.sheet = sheet
         return issues
 
+    def _open_sheet(self):
+        if not self.options.single_worksheet_mode:
+            raise ValueError(
+                "Fetching Jira data only works with single worksheet mode. Current worksheets: %s",
+                self.options.worksheets,
+            )
+        worksheet = self.options.worksheets[0]
+        LOG.info("Fetching data from worksheet: %s", worksheet)
+        try:
+            sheet = self.client.open(self.options.spreadsheet).worksheet(worksheet)
+        except SpreadsheetNotFound:
+            raise ValueError("Spreadsheet was not found with name '{}'".format(self.options.spreadsheet))
+        except WorksheetNotFound:
+            raise ValueError("Worksheet was not found with name '{}'".format(worksheet))
+        return sheet, worksheet
+
     def _is_column_index_valid(self, header, column_name: str, column_type: str):
         return self._find_column_idx_in_header(header, column_name, column_type) >= 0
 
@@ -388,15 +390,11 @@ class GSheetWrapper:
             LOG.debug("%s column was found with index: %d", type_of_column, column_idx)
         return column_idx
 
-    def get_column_indices_of_header(self, header: List[str]):
-        result = {}
-        for col_name in header:
-            LOG.debug("Fetching column index of '%s'", col_name)
-            column_idx = header.index(col_name)
-            if column_idx > -1:
-                LOG.debug("Column '%s' was found with index: %d", col_name, column_idx)
-            result[col_name] = column_idx
-        return result
+    def get_column_indices_of_header(self):
+        sheet, worksheet = self._open_sheet()
+        header = sheet.row_values(1)
+        LOG.debug("Fetched spreadsheet header: %s", header)
+        return {col_name: idx for idx, col_name in enumerate(header)}
 
     def update_issue_with_results(self, issue, date_str, status: str, batch_mode: bool = False):
         if not self.sheet:
