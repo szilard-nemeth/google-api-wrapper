@@ -142,14 +142,19 @@ class GSheetWrapper:
         self.issue_to_cellupdate = {}
 
     def read_data(self, worksheet_name: str, range=None) -> List[List[str]]:
-        try:
-            sheet = self.client.open(self.options.spreadsheet)
-            worksheet = sheet.worksheet(worksheet_name)
-            return worksheet.get(range)
-        except SpreadsheetNotFound:
-            raise ValueError("Spreadsheet was not found with name '{}'".format(self.options.spreadsheet))
-        except WorksheetNotFound:
-            raise ValueError("Worksheet was not found with name '{}'".format(worksheet_name))
+        worksheet, worksheet_name = self._open_worksheet(worksheet_name=worksheet_name)
+        return worksheet.get(range)
+
+    def read_data_by_header(self, rows: int, skip_header_row=True) -> List[List[str]]:
+        worksheet, worksheet_name = self._open_worksheet()
+        header = worksheet.row_values(1)
+        col_letter = chr(ord("a") + len(header) - 1).upper()
+
+        starting_cell = self.A1
+        if skip_header_row:
+            starting_cell = self.A2
+        range_to_fetch = "{}:{}{}".format(starting_cell, col_letter, rows)
+        return worksheet.get(range_to_fetch)
 
     def write_data(
         self, header, data, worksheet_name: str = None, clear_range=True, create_not_existing_worksheet=False
@@ -286,8 +291,8 @@ class GSheetWrapper:
         return range_to_clear
 
     def fetch_jira_data(self):
-        sheet, worksheet = self._open_sheet()
-        header = sheet.row_values(1)
+        worksheet, worksheet_name = self._open_worksheet()
+        header = worksheet.row_values(1)
         LOG.debug("Fetched spreadsheet header: %s", header)
 
         update_date_col_idx = self._find_column_idx_in_header(header, self.options.update_date_column, "update date")
@@ -298,8 +303,8 @@ class GSheetWrapper:
         if status_col_idx < 0:
             self.options.do_update_status = False
 
-        rows = sheet.get_all_records()
-        cells = sheet.range("A1:W1000")
+        rows = worksheet.get_all_records()
+        cells = worksheet.range("A1:W1000")
         range_idx_diff = (ord("W") - ord("A")) + 1
         LOG.debug("Received data from sheet %s: %s", worksheet, pformat(rows))
 
@@ -352,24 +357,25 @@ class GSheetWrapper:
         LOG.debug("Issue to CellUpdate mappings: %s", self.issue_to_cellupdate)
         LOG.debug("Found Jira issue from GSheet: %s", issues)
 
-        self.sheet = sheet
+        self.sheet = worksheet
         return issues
 
-    def _open_sheet(self):
+    def _open_worksheet(self, worksheet_name=None):
         if not self.options.single_worksheet_mode:
             raise ValueError(
                 "Fetching Jira data only works with single worksheet mode. Current worksheets: %s",
                 self.options.worksheets,
             )
-        worksheet = self.options.worksheets[0]
-        LOG.info("Fetching data from worksheet: %s", worksheet)
+        if not worksheet_name:
+            worksheet_name = self.options.worksheets[0]
+        LOG.info("Fetching data from worksheet: %s", worksheet_name)
         try:
-            sheet = self.client.open(self.options.spreadsheet).worksheet(worksheet)
+            worksheet = self.client.open(self.options.spreadsheet).worksheet(worksheet_name)
         except SpreadsheetNotFound:
             raise ValueError("Spreadsheet was not found with name '{}'".format(self.options.spreadsheet))
         except WorksheetNotFound:
-            raise ValueError("Worksheet was not found with name '{}'".format(worksheet))
-        return sheet, worksheet
+            raise ValueError("Worksheet was not found with name '{}'".format(worksheet_name))
+        return worksheet, worksheet_name
 
     def _is_column_index_valid(self, header, column_name: str, column_type: str):
         return self._find_column_idx_in_header(header, column_name, column_type) >= 0
@@ -391,7 +397,7 @@ class GSheetWrapper:
         return column_idx
 
     def get_column_indices_of_header(self):
-        sheet, worksheet = self._open_sheet()
+        sheet, worksheet = self._open_worksheet()
         header = sheet.row_values(1)
         LOG.debug("Fetched spreadsheet header: %s", header)
         return {col_name: idx for idx, col_name in enumerate(header)}
