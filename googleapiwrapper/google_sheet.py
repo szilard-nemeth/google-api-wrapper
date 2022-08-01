@@ -12,6 +12,7 @@ from pythoncommons.file_utils import FileUtils
 
 COLS = 10
 ROWS = 1000
+UNKNOWN_ACTION = "unknown"
 
 LOG = logging.getLogger(__name__)
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -142,11 +143,11 @@ class GSheetWrapper:
         self.issue_to_cellupdate = {}
 
     def read_data(self, worksheet_name: str, range=None) -> List[List[str]]:
-        worksheet, worksheet_name = self._open_worksheet(worksheet_name=worksheet_name)
+        worksheet, worksheet_name = self._open_worksheet(action=UNKNOWN_ACTION, worksheet_name=worksheet_name)
         return worksheet.get(range)
 
     def read_data_by_header(self, rows: int, skip_header_row=True) -> List[List[str]]:
-        worksheet, worksheet_name = self._open_worksheet()
+        worksheet, worksheet_name = self._open_worksheet(action=UNKNOWN_ACTION)
         header = worksheet.row_values(1)
         col_letter = chr(ord("a") + len(header) - 1).upper()
 
@@ -291,7 +292,7 @@ class GSheetWrapper:
         return range_to_clear
 
     def fetch_jira_data(self):
-        worksheet, worksheet_name = self._open_worksheet()
+        worksheet, worksheet_name = self._open_worksheet("Fetching Jira data")
         header = worksheet.row_values(1)
         LOG.debug("Fetched spreadsheet header: %s", header)
 
@@ -360,12 +361,16 @@ class GSheetWrapper:
         self.sheet = worksheet
         return issues
 
-    def _open_worksheet(self, worksheet_name=None):
-        if not self.options.single_worksheet_mode:
-            raise ValueError(
-                "Fetching Jira data only works with single worksheet mode. Current worksheets: %s",
-                self.options.worksheets,
+    def _open_worksheet(self, action: str, worksheet_name=None):
+        if not self.options.single_worksheet_mode and not worksheet_name:
+            fmt = "Current action only works with single worksheet mode. Current worksheets: {}".format(
+                self.options.worksheets
             )
+            if action != UNKNOWN_ACTION:
+                fmt = "{} only works with single worksheet mode. Current worksheets: {}".format(
+                    action, self.options.worksheets
+                )
+            raise ValueError(fmt)
         if not worksheet_name:
             worksheet_name = self.options.worksheets[0]
         LOG.info("Fetching data from worksheet: %s", worksheet_name)
@@ -397,7 +402,7 @@ class GSheetWrapper:
         return column_idx
 
     def get_column_indices_of_header(self):
-        sheet, worksheet = self._open_worksheet()
+        sheet, worksheet = self._open_worksheet("Getting column indices of header")
         header = sheet.row_values(1)
         LOG.debug("Fetched spreadsheet header: %s", header)
         return {col_name: idx for idx, col_name in enumerate(header)}
