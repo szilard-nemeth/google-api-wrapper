@@ -147,11 +147,29 @@ class GSheetWrapper:
         return worksheet.get(range)
 
     def create_sheet(self):
+        sheets = self.client.openall(self.options.spreadsheet)
+        if len(sheets) > 1:
+            raise ValueError("Multiple sheets found with title '{}'".format(self.options.spreadsheet))
         try:
-            spreadsheet = self.client.create(self.options.spreadsheet)
-            return spreadsheet
-        except Exception:
-            raise ValueError("Spreadsheet cannot be created with name '{}'".format(self.options.spreadsheet))
+            sheet = self.client.open(self.options.spreadsheet)
+            self._add_worksheet(sheet, self.options.worksheets[0])
+            return sheet
+        except SpreadsheetNotFound:
+            LOG.info("Spreadsheet was not found with name '%s'. Creating new spreadsheet.", self.options.spreadsheet)
+            try:
+                sheet = self.client.create(self.options.spreadsheet)
+                self._add_worksheet(sheet, self.options.worksheets[0])
+                return sheet
+            except Exception:
+                raise ValueError("Spreadsheet cannot be created with name '{}'".format(self.options.spreadsheet))
+
+    @staticmethod
+    def _add_worksheet(sheet, worksheet_name: str):
+        worksheets = sheet.worksheets()
+        LOG.debug("Found worksheets: %s", worksheets)
+        worksheet_titles = [w.title for w in worksheets]
+        if worksheet_name not in worksheet_titles:
+            sheet.add_worksheet(worksheet_name, ROWS, COLS)
 
     def read_data_by_header(self, rows: int, skip_header_row=True) -> List[List[str]]:
         worksheet, worksheet_name = self._open_worksheet(action=UNKNOWN_ACTION)
