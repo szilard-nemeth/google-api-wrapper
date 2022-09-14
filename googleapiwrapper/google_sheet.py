@@ -1,3 +1,4 @@
+import enum
 import logging
 from pprint import pformat
 from typing import List, Dict
@@ -9,6 +10,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 from dataclasses import dataclass
 
 from pythoncommons.file_utils import FileUtils
+
+from googleapiwrapper.google_auth import GoogleApiAuthorizer, AuthedSession
 
 COLS = 10
 ROWS = 1000
@@ -28,6 +31,14 @@ class CellWrapper:
 class GenericCellUpdate:
     issue_id: str
     values: Dict[str, str]
+
+
+class AuthType(enum.Enum):
+    SERVICE_ACCOUNT = "service_account"
+    NORMAL = "normal"
+
+
+DEFAULT_AUTH_TYPE = AuthType.SERVICE_ACCOUNT
 
 
 class CellUpdateForIssue:
@@ -118,7 +129,7 @@ class GSheetWrapper:
     A2 = "A2"
     DEFAULT_RANGE_TO_CLEAR = "A1:Z10000"
 
-    def __init__(self, options: GSheetOptions):
+    def __init__(self, options: GSheetOptions, auth_type=DEFAULT_AUTH_TYPE, authorizer: GoogleApiAuthorizer = None):
         LOG.debug(f"GSheetWrapper options: {options}")
         if not isinstance(options, GSheetOptions):
             raise ValueError("options must be an instance of GSheetOptions!")
@@ -132,15 +143,33 @@ class GSheetWrapper:
         self.options: GSheetOptions = options
         self.multi_worksheet = True if len(self.options.worksheets) > 1 else False
 
+        if auth_type == AuthType.SERVICE_ACCOUNT:
+            self._init_creds_by_service_account(options)
+        elif auth_type == AuthType.NORMAL:
+            self._init_creds_normal(options, authorizer)
+        self.client = gspread.authorize(self.creds)
+        self.issue_to_cellupdate = {}
+
+    @staticmethod
+    def by_authorizer(options: GSheetOptions, authorizer: GoogleApiAuthorizer):
+        return GSheetWrapper(options, auth_type=AuthType.NORMAL, authorizer=authorizer)
+
+    def _init_creds_by_service_account(self, options):
+        self._validate_creds_file(options)
+        self.creds = ServiceAccountCredentials.from_json_keyfile_name(options.client_secret, SCOPE)
+
+    def _init_creds_normal(self, options, authorizer: GoogleApiAuthorizer):
+        self._validate_creds_file(options)
+        authed_session: AuthedSession = authorizer.authorize()
+        self.creds = authed_session.authed_creds
+
+    @staticmethod
+    def _validate_creds_file(options):
         if not options.client_secret:
             raise ValueError("Client secret should be specified!")
         if not FileUtils.does_file_exist(options.client_secret):
             raise ValueError("Client secret file does not exist!")
         FileUtils.ensure_file_exists_and_readable(options.client_secret)
-
-        self.creds = ServiceAccountCredentials.from_json_keyfile_name(options.client_secret, SCOPE)
-        self.client = gspread.authorize(self.creds)
-        self.issue_to_cellupdate = {}
 
     def read_data(self, worksheet_name: str, range=None) -> List[List[str]]:
         worksheet, worksheet_name = self._open_worksheet(action=UNKNOWN_ACTION, worksheet_name=worksheet_name)

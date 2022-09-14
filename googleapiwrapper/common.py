@@ -2,8 +2,9 @@ from enum import Enum
 
 
 class ServiceType(Enum):
-    DRIVE = ('drive', ['https://www.googleapis.com/auth/drive.metadata.readonly'], "v3")
-    GMAIL = ('gmail', ['https://www.googleapis.com/auth/gmail.readonly'], "v1")
+    DRIVE = ("drive", ["https://www.googleapis.com/auth/drive.metadata.readonly"], "v3")
+    GMAIL = ("gmail", ["https://www.googleapis.com/auth/gmail.readonly"], "v1")
+    SHEETS = ("sheets", ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"], "v3")
 
     def __init__(self, name, scopes, api_version):
         self.service_name = name
