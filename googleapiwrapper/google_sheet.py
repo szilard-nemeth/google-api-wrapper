@@ -146,6 +146,13 @@ class GSheetWrapper:
         worksheet, worksheet_name = self._open_worksheet(action=UNKNOWN_ACTION, worksheet_name=worksheet_name)
         return worksheet.get(range)
 
+    def create_sheet(self):
+        try:
+            spreadsheet = self.client.create(self.options.spreadsheet)
+            return spreadsheet
+        except Exception:
+            raise ValueError("Spreadsheet cannot be created with name '{}'".format(self.options.spreadsheet))
+
     def read_data_by_header(self, rows: int, skip_header_row=True) -> List[List[str]]:
         worksheet, worksheet_name = self._open_worksheet(action=UNKNOWN_ACTION)
         header = worksheet.row_values(1)
