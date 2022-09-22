@@ -25,7 +25,7 @@ packages = [{include = "googleapiwrapper"}]
 
 [tool.poetry.dependencies]
 python = "^3.8"
-python-commons = "1.0.0"
+python-common-utils = "1.0.0"
 google-api-python-client = "2.31.0"
 google-auth-httplib2 = "0.1.0"
 google-auth-oauthlib = "0.4.6"
