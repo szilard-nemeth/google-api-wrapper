@@ -21,7 +21,7 @@ version = "1.0.0"
 description = ""
 authors = ["Szilard Nemeth <szilard.nemeth88@gmail.com>"]
 readme = "README.md"
-packages = [{include = "google_api_wrapper"}]
+packages = [{include = "googleapiwrapper"}]
 
 [tool.poetry.dependencies]
 python = "^3.8"
