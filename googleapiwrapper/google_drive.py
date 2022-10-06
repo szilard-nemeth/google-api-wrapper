@@ -233,6 +233,7 @@ class FileFindMode(Enum):
 
 @dataclass
 class DriveApiWrapperSessionSettings:
+    # TODO Make this more simple: Classes DriveApiWrapperSingleOperationSettings & _DriveApiWrapperFinalSettings are having the same set of fields --> error prone!
     file_find_mode: FileFindMode
     duplicate_file_handling_mode: DuplicateFileWriteResolutionMode = DuplicateFileWriteResolutionMode.ADD_NEW_REVISION
     search_result_handling_mode: SearchResultHandlingMode or None = (
