@@ -104,11 +104,13 @@ class CacheResultItems:
         """
         :return: Any cached item. This only counts cached items related to the specified item_ids during init.
         """
-        return sum([
-            len(set(self.fully_cached_ids).intersection(self.item_ids)),
-            len(set(self.partially_cached_items).intersection(self.item_ids)),
-            len(set(self.not_yet_determined_ids).intersection(self.item_ids)),
-            ])
+        return sum(
+            [
+                len(set(self.fully_cached_ids).intersection(self.item_ids)),
+                len(set(self.partially_cached_items).intersection(self.item_ids)),
+                len(set(self.not_yet_determined_ids).intersection(self.item_ids)),
+            ]
+        )
 
     def is_fully_cached(self, item_id: str) -> bool:
         return item_id in self.fully_cached_ids
@@ -125,11 +127,12 @@ class CacheResultItems:
             elif lengths:
                 return len(coll)
             return self.not_yet_determined_ids if ids else len(self.not_yet_determined_ids)
+
         return {
             ItemCacheState.FULLY_CACHED.value: _dict_val(self.fully_cached_ids),
             ItemCacheState.PARTIALLY_CACHED.value: _dict_val(self.partially_cached_ids),
             ItemCacheState.NOT_CACHED.value: _dict_val(self.not_cached_ids),
-            ItemCacheState.CACHE_LEVEL_NOT_DETERMINED.value: _dict_val(self.not_yet_determined_ids)
+            ItemCacheState.CACHE_LEVEL_NOT_DETERMINED.value: _dict_val(self.not_yet_determined_ids),
         }
 
     def mark_partially_cached(self, item_id):
@@ -147,13 +150,17 @@ class CacheResultItems:
         not_cached = True if item_id in self.not_cached_ids else False
 
         if not any([not_cached, not_yet_determined]):
-            raise ValueError(f"{self._meta.type_capitalized} with ID '{item_id}' should be in the collection of {self._meta.type_plural} "
-                             f"with not yet determined or not cached state but it wasn't in any of these. "
-                             f"This could be a programming error!")
+            raise ValueError(
+                f"{self._meta.type_capitalized} with ID '{item_id}' should be in the collection of {self._meta.type_plural} "
+                f"with not yet determined or not cached state but it wasn't in any of these. "
+                f"This could be a programming error!"
+            )
         if all([not_cached, not_yet_determined]):
-            raise ValueError(f"{self._meta.type_capitalized} with ID '{item_id}' is in the collection of {self._meta.type_plural} "
-                             f"with not yet determined AND not cached state but should be only one of these. "
-                             f"This is a programming error!")
+            raise ValueError(
+                f"{self._meta.type_capitalized} with ID '{item_id}' is in the collection of {self._meta.type_plural} "
+                f"with not yet determined AND not cached state but should be only one of these. "
+                f"This is a programming error!"
+            )
         if not_cached:
             return ItemCacheState.NOT_CACHED
         else:
@@ -237,14 +244,15 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         # Other properties
         user_email_converted = CommonUtils.convert_email_address_to_dirname(user_email)
         self.project_acct_basedir = FileUtils.join_path(output_basedir, user_email_converted)
-        self.threads_dir = FileUtils.ensure_dir_created(FileUtils.join_path(self.project_acct_basedir, THREADS_DIR_NAME))
+        self.threads_dir = FileUtils.ensure_dir_created(
+            FileUtils.join_path(self.project_acct_basedir, THREADS_DIR_NAME)
+        )
         super().__init__(output_basedir, project_name, user_email)
 
     def fill_cache(self):
-        found_thread_dirnames: List[str] = FileUtils.find_files(self.threads_dir,
-                                                                find_type=FindResultType.DIRS,
-                                                                regex=".*",
-                                                                single_level=True)
+        found_thread_dirnames: List[str] = FileUtils.find_files(
+            self.threads_dir, find_type=FindResultType.DIRS, regex=".*", single_level=True
+        )
         self.cached_thread_ids.extend(found_thread_dirnames)
         for thread_id in self.cached_thread_ids:
             self._load_message_data_from_file(thread_id)
@@ -258,8 +266,9 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         """
         message_data_file = FileUtils.join_path(self.threads_dir, thread_id, MESSAGE_DATA_FILENAME)
         list_of_message_data: List[Dict[str, str]] = self._load_data_from_file(message_data_file)
-        self.thread_to_message_data[thread_id] = {msg_data[MESSAGE_ID]: msg_data[MESSAGE_DATE] for msg_data in
-                                                  list_of_message_data}
+        self.thread_to_message_data[thread_id] = {
+            msg_data[MESSAGE_ID]: msg_data[MESSAGE_DATE] for msg_data in list_of_message_data
+        }
 
     def process_threads(self, thread_response: Dict[str, Any]):
         # TODO only write to file if required, i.e. thread is not fully cached. Also, make this configurable
@@ -296,16 +305,30 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
             # Only query threads that are not in cache, on other words unknown.
             # All known thread IDs are stored in self.thread_ids.
             # When only one message / thread is expected, consider all known threads as fully cached.
-            return CacheResultItems(thread_ids, cache_type="thread")\
-                .add_not_cached(unknown_thread_ids)\
-                .add_fully_cached({t_id: self._get_thread_from_file_system(t_id) for t_id in self.cached_thread_ids})
+
+            fully_cached = {}
+            for t_id in self.cached_thread_ids:
+                try:
+                    fully_cached[t_id] = self._get_thread_from_file_system(t_id)
+                except Exception as e:
+                    LOG.error("Error when processing thread.", e)
+                    LOG.warning("Cannot open file for thread: %s. Adding it to not cached threads.", t_id)
+                    unknown_thread_ids.add(t_id)
+
+            return (
+                CacheResultItems(thread_ids, cache_type="thread")
+                .add_not_cached(unknown_thread_ids)
+                .add_fully_cached(fully_cached)
+            )
 
         # If we expect more than 1 message per thread, even known threads may have new messages.
         # In this case, treat all known thread IDs as not yet determined, as messages should be queried again for them.
         known_thread_ids: Set[str] = set(thread_ids).difference(unknown_thread_ids)
-        return CacheResultItems(thread_ids, cache_type="thread")\
-            .add_not_yet_determined(known_thread_ids)\
+        return (
+            CacheResultItems(thread_ids, cache_type="thread")
+            .add_not_yet_determined(known_thread_ids)
             .add_not_cached(unknown_thread_ids)
+        )
 
     def get_cache_state_for_message(self, thread_id: str, message_id: str):
         """
@@ -326,9 +349,11 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
 
         cached = {thread_id: attachment_data} if thread_id in self.cached_message_attachments else {}
         not_cached = [] if len(cached) > 0 else [thread_id]
-        return CacheResultItems([message_id], cache_type="message attachment") \
-            .add_not_cached(not_cached) \
+        return (
+            CacheResultItems([message_id], cache_type="message attachment")
+            .add_not_cached(not_cached)
             .add_fully_cached(cached)
+        )
 
     def _get_attachment_filename(self, thread_id, message_id, create_messages_dir=True):
         thread_dir = self._get_thread_dir(thread_id)
@@ -338,8 +363,10 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
     def _get_thread_dir(self, thread_id):
         thread_dir: str = FileUtils.join_path(self.threads_dir, thread_id)
         if not FileUtils.does_path_exist(thread_dir):
-            raise ValueError(f"Thread dir does not exist for thread with ID: {thread_dir}. "
-                             f"This should not happen at this point of the execution.")
+            raise ValueError(
+                f"Thread dir does not exist for thread with ID: {thread_dir}. "
+                f"This should not happen at this point of the execution."
+            )
         return thread_dir
 
     @staticmethod
@@ -362,8 +389,9 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         return self._load_data_from_file(thread_json_file)
 
     def actualize_cache_state(self, cache_state: CacheResultItems, thread_id: str, message_ids: List[str]):
-        message_ids_for_thread: List[str] = self.thread_to_message_data[thread_id].keys() \
-            if thread_id in self.thread_to_message_data else []
+        message_ids_for_thread: List[str] = (
+            self.thread_to_message_data[thread_id].keys() if thread_id in self.thread_to_message_data else []
+        )
         self.unknown_message_per_thread[thread_id] = set(message_ids).difference(message_ids_for_thread)
         if self.unknown_message_per_thread[thread_id]:
             cache_state.mark_partially_cached(thread_id)
@@ -376,10 +404,9 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         messages_response: List[Dict[str, Any]] = GH.get_field(thread_response, ThreadField.MESSAGES)
         message_data_dicts: List[Dict[str, str]] = []
         for msg in messages_response:
-            message_data_dicts.append({
-                MESSAGE_ID: GH.get_field(msg, MessageField.ID),
-                MESSAGE_DATE: GH.get_field(msg, MessageField.DATE)
-            })
+            message_data_dicts.append(
+                {MESSAGE_ID: GH.get_field(msg, MessageField.ID), MESSAGE_DATE: GH.get_field(msg, MessageField.DATE)}
+            )
         return message_data_dicts
 
     @staticmethod
@@ -429,7 +456,9 @@ class ApiFetchingContext:
     def process_attachment_for_message(self, thread_id: str, message_id: str, attachment_response: Dict[str, Any]):
         self._caching_strategy.process_attachment_for_message(thread_id, message_id, attachment_response)
 
-    def get_cache_state_for_threads(self, thread_ids: List[str], expect_one_message_per_thread: bool) -> CacheResultItems:
+    def get_cache_state_for_threads(
+        self, thread_ids: List[str], expect_one_message_per_thread: bool
+    ) -> CacheResultItems:
         return self._caching_strategy.get_cache_state_for_threads(thread_ids, expect_one_message_per_thread)
 
     def get_cache_state_for_message(self, thread_id: str, message_id: str) -> CacheResultItems:
