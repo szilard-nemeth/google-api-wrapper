@@ -256,7 +256,7 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         self.cached_thread_ids.extend(found_thread_dirnames)
         for thread_id in self.cached_thread_ids:
             self._load_message_data_from_file(thread_id)
-        LOG.debug(f"Loaded message data: {self.thread_to_message_data}")
+        LOG.trace(f"Loaded message data: {self.thread_to_message_data}")
 
     def _load_message_data_from_file(self, thread_id):
         """
