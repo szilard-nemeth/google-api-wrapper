@@ -1,3 +1,4 @@
+import io
 import logging
 import os
 from dataclasses import dataclass
@@ -6,6 +7,8 @@ from typing import List, Dict, Any, Tuple
 
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaIoBaseDownload
 from pythoncommons.file_utils import FileUtils
 from pythoncommons.object_utils import ObjUtils
 from pythoncommons.string_utils import auto_str, StringUtils
@@ -759,3 +762,29 @@ class DriveApiWrapper:
         if key not in d:
             return None
         return d[key]
+
+    def download_file(self, file_id):
+        """Downloads a file
+        Args:
+            file_id: ID of the file to download
+        Returns : IO object with location.
+
+        Load pre-authorized user credentials from the environment.
+        TODO(developer) - See https://developers.google.com/identity
+        for guides on implementing OAuth2 for the application.
+        """
+        try:
+            # pylint: disable=maybe-no-member
+            request = self.files_service.get_media(fileId=file_id)
+            file = io.BytesIO()
+            downloader = MediaIoBaseDownload(file, request)
+            done = False
+            while done is False:
+                status, done = downloader.next_chunk()
+                LOG.debug(f"Download {int(status.progress() * 100)}.")
+
+        except HttpError as error:
+            LOG.debug(f"An error occurred: {error}")
+            file = None
+
+        return file
