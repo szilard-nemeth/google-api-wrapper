@@ -123,6 +123,7 @@ class FileField:
     NAME = "name"
     ID = "id"
     PARENTS = "parents"
+    SIZE = "size"
 
     _ALL_FIELDS_WITH_DISPLAY_NAME = [
         (ID, "ID"),
@@ -134,6 +135,7 @@ class FileField:
         (SHARED_WITH_ME_TIME, "Shared with me date"),
         (F_OWNER, "Owner"),
         (PARENTS, "Parents"),
+        (SIZE, "Size"),
     ]
 
     PRINTABLE_FIELD_DISPLAY_NAMES = [
@@ -192,6 +194,7 @@ class DriveApiFile:
         mime_type,
         owners,
         sharing_user: DriveApiUser or None,
+        size,
         parents,
         parent: Any = None,
     ):
@@ -207,6 +210,7 @@ class DriveApiFile:
 
         sharing_user.name = StringUtils.replace_special_chars(sharing_user.name)
         self.sharing_user = sharing_user
+        self.size = size
         self.parents = parents
         self._parent = parent
 
@@ -754,6 +758,7 @@ class DriveApiWrapper:
             DriveApiWrapper._safe_get(item, FileField.MIMETYPE),
             owners,
             sharing_user,
+            DriveApiWrapper._safe_get(item, FileField.SIZE),
             DriveApiWrapper._safe_get(item, FileField.PARENTS),
         )
 
