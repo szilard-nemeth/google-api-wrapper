@@ -374,6 +374,10 @@ class GmailWrapper:
     def _parse_headers(message_part):
         headers_list: List[Dict[str, str]] = GH.get_field(message_part, MessagePartField.HEADERS)
         headers: List[Header] = []
+        if not headers_list:
+            LOG.warning("Headers is empty for message part: %s", message_part)
+            return headers
+
         for header_dict in headers_list:
             headers.append(
                 Header(GH.get_field(header_dict, HeaderField.NAME), GH.get_field(header_dict, HeaderField.VALUE))
