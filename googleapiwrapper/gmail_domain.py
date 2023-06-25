@@ -7,6 +7,7 @@ from enum import Enum
 from typing import List, Dict, Any
 
 from googleapiwrapper.utils import Decoder
+
 LOG = logging.getLogger(__name__)
 
 
@@ -103,11 +104,13 @@ class MessagePart:
     parts: List[Any]  # Cannot refer to MessagePart :(
 
     def short_str(self):
-        return f"{{ ID: {self.id}, " \
-               f"mime_type: {self.mime_type}, " \
-               f"headers: {self.headers}, " \
-               f"body (short): {self.body.short_str()}, " \
-               f"parts (short): {[part.short_str() for part in self.parts]} }}"
+        return (
+            f"{{ ID: {self.id}, "
+            f"mime_type: {self.mime_type}, "
+            f"headers: {self.headers}, "
+            f"body (short): {self.body.short_str()}, "
+            f"parts (short): {[part.short_str() for part in self.parts]} }}"
+        )
 
 
 @dataclass
@@ -126,7 +129,7 @@ class Message:
 
     def _get_subject_from_headers(self):
         for header in self.payload.headers:
-            if header.name == 'Subject':
+            if header.name == "Subject":
                 return header.value
         return None
 
@@ -210,8 +213,10 @@ class GmailMessage:
                 decoded_body_data = ""
                 empty = True
         except binascii.Error:
-            LOG.exception(f"Failed to parse base64 encoded data for message with ID: {self.msg_id}."
-                          f"Storing original body data to object and storing original API object as well.")
+            LOG.exception(
+                f"Failed to parse base64 encoded data for message with ID: {self.msg_id}."
+                f"Storing original body data to object and storing original API object as well."
+            )
             decoded_body_data = encoded_body_data
             successful = False
         return decoded_body_data, successful, empty
@@ -223,8 +228,9 @@ class GmailMessage:
         return self._filter_by_mime_type(mime_type, self.message_body_parts)
 
     @staticmethod
-    def _filter_by_mime_type(mime_type: MimeType, message_parts: List[GmailMessageBodyPart]) -> List[
-        GmailMessageBodyPart]:
+    def _filter_by_mime_type(
+        mime_type: MimeType, message_parts: List[GmailMessageBodyPart]
+    ) -> List[GmailMessageBodyPart]:
         return list(filter(lambda x: x.mime_type == mime_type.value, message_parts))
 
 
@@ -235,10 +241,12 @@ class MessagePartDescriptor:
     gmail_msg_body_part: GmailMessageBodyPart
 
     def __str__(self):
-        return f"{{ mesage: {self.message.short_str()}, " \
-               f"message_part: {self.message_part.short_str()}, " \
-               f"gmail_msg_body_part: {self.gmail_msg_body_part} " \
-               f"}}"
+        return (
+            f"{{ mesage: {self.message.short_str()}, "
+            f"message_part: {self.message_part.short_str()}, "
+            f"gmail_msg_body_part: {self.gmail_msg_body_part} "
+            f"}}"
+        )
 
 
 class GmailThread:
@@ -252,7 +260,8 @@ class GmailThreads:
     threads: List[GmailThread] = field(default_factory=list)
 
     def add(self, thread: Thread):
-        gmail_thread = GmailThread(thread.id, [GmailMessage.from_message(m, thread.id) for m in thread.messages])
+        messages = [GmailMessage.from_message(m, thread.id) for m in thread.messages]
+        gmail_thread = GmailThread(thread.id, messages)
         self.threads.append(gmail_thread)
 
     @property

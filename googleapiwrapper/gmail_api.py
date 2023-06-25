@@ -235,6 +235,7 @@ class GmailWrapper:
                         return ThreadQueryResults(threads)
                     ctx.progress.print_processing_items()
                     thread_resp_full = self._request_thread_or_load_from_cache(thread_id, cache_state)
+                    # TODO this writes to file even for fully cached threads --> unnecessary disk usage for each cached thread
                     self.api_fetching_ctx.process_thread(thread_resp_full)
                     thread_obj: Thread = self._convert_to_thread_object(ctx, sanity_check, thread_id, thread_resp_full)
                     threads.add(thread_obj)  # This action will internally create GmailMessage and rest of the stuff
