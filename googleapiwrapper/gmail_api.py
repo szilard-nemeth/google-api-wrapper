@@ -145,6 +145,19 @@ class ApiConversionContext:
             func(descriptor)
         self.empty_bodies.clear()
 
+    def sanity_check(self, thread_id: str):
+        for desc in self.empty_bodies:
+            d_message_id: str = desc.message.id
+            d_thread_id: str = desc.message.thread_id
+            LOG.debug("Found message id in descriptor: %s", d_message_id)
+            LOG.debug("Found thread id in descriptor: %s", d_thread_id)
+            if thread_id != d_thread_id:
+                thread_ids = set([d.message.thread_id for d in self.empty_bodies])
+                raise ValueError(
+                    "Mismatch in thread ids. "
+                    "Current thread id: {}, found thread_ids: {}".format(thread_id, thread_ids)
+                )
+
 
 CONVERSION_CONTEXT: ApiConversionContext = None
 module = sys.modules[__name__]
@@ -239,6 +252,7 @@ class GmailWrapper:
                     self.api_fetching_ctx.process_thread(thread_resp_full)
                     thread_obj: Thread = self._convert_to_thread_object(ctx, sanity_check, thread_id, thread_resp_full)
                     threads.add(thread_obj)  # This action will internally create GmailMessage and rest of the stuff
+                    ctx.handle_empty_bodies(lambda desc: self.request_attachment_or_load_from_cache(desc))
             request = self.threads_svc.list_next(request, response)
 
         ctx.handle_encoding_errors()
@@ -292,14 +306,17 @@ class GmailWrapper:
     def _convert_to_thread_object(self, ctx, sanity_check: bool, thread_id: str, thread_resp_full):
         messages_response: List[Dict[str, Any]] = GH.get_field(thread_resp_full, ThreadField.MESSAGES)
         messages: List[Message] = [self.parse_api_message(message) for message in messages_response]
-        ctx.handle_empty_bodies(lambda desc: self._request_attachment_or_load_from_cache(desc))
+
+        if sanity_check:
+            ctx.sanity_check(thread_id)
+
         arbitrary_msg_subject: str = messages[0].subject
         thread_obj: Thread = Thread(thread_id, arbitrary_msg_subject, messages)
         if sanity_check:
             self._sanity_check(thread_obj)
         return thread_obj
 
-    def _request_attachment_or_load_from_cache(self, descriptor: MessagePartDescriptor):
+    def request_attachment_or_load_from_cache(self, descriptor: MessagePartDescriptor):
         # Fix MessagePartBody object that has attachmentId only
         # Quoting from API doc for Field 'attachmentId':
         # When present, contains the ID of an external attachment that can be retrieved in a
@@ -315,13 +332,15 @@ class GmailWrapper:
             )
             return
 
-        cache_state: CacheResultItems = self.api_fetching_ctx.get_cache_state_for_message(thread_id, message_id)
+        cache_state: CacheResultItems = self.api_fetching_ctx.get_cache_state_for_message(
+            thread_id, message_id, attachment_id
+        )
         self._log_cache_state_details(cache_state, [message_id])
         if cache_state.is_fully_cached(message_id):
             attachment_response = self._get_item_from_cache(cache_state, thread_id)
         else:
             attachment_response: Dict[str, Any] = self._query_attachment(thread_id, message_id, attachment_id)
-        self.api_fetching_ctx.process_attachment_for_message(thread_id, message_id, attachment_response)
+        self.api_fetching_ctx.process_attachment_for_message(thread_id, message_id, attachment_id, attachment_response)
 
         # Fix the GmailMessageBodyPart object's body_data property with the contents of the attachment.
         # TODO consider storing FS instead of whole file contents in memory?

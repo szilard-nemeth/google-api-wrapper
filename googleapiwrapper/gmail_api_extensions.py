@@ -2,7 +2,7 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Dict, Any, Set, Iterable
+from typing import List, Dict, Any, Set, Iterable, Tuple
 
 from pythoncommons.file_utils import JsonFileUtils, FileUtils, FindResultType
 from pythoncommons.string_utils import auto_str
@@ -222,11 +222,13 @@ class CachingStrategy(ABC):
         pass
 
     @abstractmethod
-    def process_attachment_for_message(self, thread_id: str, message_id: str, attachment_response: Dict[str, Any]):
+    def process_attachment_for_message(
+        self, thread_id: str, message_id: str, attachment_id: str, attachment_response: Dict[str, Any]
+    ):
         pass
 
     @abstractmethod
-    def get_cache_state_for_message(self, thread_id: str, message_id: str):
+    def get_cache_state_for_message(self, thread_id: str, message_id: str, attachment_id: str):
         pass
 
 
@@ -235,7 +237,7 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         # Cache-related properties
         self.cached_thread_ids: List[str] = []
         # Key: Message ID
-        self.cached_message_attachments: Set[str] = set()
+        self.cached_message_attachments: Set[Tuple[str, str, str]] = set()  # Tuple: (threadID, messageID, attachmentID)
         # Main key: Thread id
         # Inner-dict key: message id, value: message date
         self.thread_to_message_data: Dict[str, Dict[str, str]] = {}
@@ -276,19 +278,27 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         thread_dir: str = self._write_thread_data_to_file(thread_id, thread_response)
         self._write_message_data_to_file(thread_dir, thread_response)
 
-    def process_attachment_for_message(self, thread_id: str, message_id: str, attachment_response: Dict[str, Any]):
-        msg_attachment_filename = self._get_attachment_filename(thread_id, message_id, create_messages_dir=True)
+    def process_attachment_for_message(
+        self, thread_id: str, message_id: str, attachment_id: str, attachment_response: Dict[str, Any]
+    ):
+        msg_attachment_filename = self._get_attachment_filename(
+            thread_id, message_id, attachment_id, create_messages_dir=True
+        )
+
+        # TODO check hash of attachment_response vs. file contents before writing it out to file
         self._write_to_file(msg_attachment_filename, attachment_response)
 
     def _write_thread_data_to_file(self, thread_id: str, thread_response):
         current_thread_dir = FileUtils.ensure_dir_created(FileUtils.join_path(self.threads_dir, thread_id))
         raw_thread_json_file = FileUtils.join_path(current_thread_dir, THREAD_JSON_FILENAME)
+        # TODO check hash of thread_response vs. file contents before writing it out to file
         self._write_to_file(raw_thread_json_file, thread_response)
         return current_thread_dir
 
     def _write_message_data_to_file(self, thread_dir: str, thread_response):
         message_data_dicts: List[Dict[str, str]] = self._convert_thread_response_to_message_data_dicts(thread_response)
         message_data_file = FileUtils.join_path(thread_dir, MESSAGE_DATA_FILENAME)
+        # TODO check hash of attachment_response vs. file contents before writing it out to file
         self._write_to_file(message_data_file, message_data_dicts)
 
     @staticmethod
@@ -330,24 +340,31 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
             .add_not_cached(unknown_thread_ids)
         )
 
-    def get_cache_state_for_message(self, thread_id: str, message_id: str):
+    def get_cache_state_for_message(self, thread_id: str, message_id: str, attachment_id: str):
         """
         Caution: This loads all message data into memory including message payloads + attachments so the resulted
         CacheResultItems should not be kept in memory for a long time as it would just accumulate without any particular reason.
         !!Use it with care!!
         :param thread_id:
         :param message_id:
+        :param attachment_id:
         :return:
         """
         attachment_data = None
-        if message_id not in self.cached_message_attachments:
+        cache_key = (thread_id, message_id, attachment_id)
+        if cache_key not in self.cached_message_attachments:
             # Try to load from Filesystem
-            msg_attachment_filename = self._get_attachment_filename(thread_id, message_id, create_messages_dir=False)
+            msg_attachment_filename = self._get_attachment_filename(
+                thread_id, message_id, attachment_id, create_messages_dir=False
+            )
             if FileUtils.does_file_exist(msg_attachment_filename):
                 attachment_data = self._load_data_from_file(msg_attachment_filename)
-                self.cached_message_attachments.add(thread_id)
+                self.cached_message_attachments.add(cache_key)
 
-        cached = {thread_id: attachment_data} if thread_id in self.cached_message_attachments else {}
+        # if not attachment_data:
+        #     raise ValueError("BUG! Attachment data is not set!")
+        # TODO bug here, attachment_data is None --> Load from disk or memory?
+        cached = {thread_id: attachment_data} if cache_key in self.cached_message_attachments else {}
         not_cached = [] if len(cached) > 0 else [thread_id]
         return (
             CacheResultItems([message_id], cache_type="message attachment")
@@ -355,10 +372,10 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
             .add_fully_cached(cached)
         )
 
-    def _get_attachment_filename(self, thread_id, message_id, create_messages_dir=True):
+    def _get_attachment_filename(self, thread_id, message_id, attachment_id, create_messages_dir=True):
         thread_dir = self._get_thread_dir(thread_id)
         messages_dir: str = self._get_messages_dir(thread_dir, create=create_messages_dir)
-        return FileUtils.join_path(messages_dir, self._get_message_attachment_filename(message_id))
+        return FileUtils.join_path(messages_dir, self._get_message_attachment_filename(message_id, attachment_id))
 
     def _get_thread_dir(self, thread_id):
         thread_dir: str = FileUtils.join_path(self.threads_dir, thread_id)
@@ -410,8 +427,9 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         return message_data_dicts
 
     @staticmethod
-    def _get_message_attachment_filename(message_id):
-        return f"message_{message_id}_attachment.txt"
+    def _get_message_attachment_filename(message_id, attachment_id):
+        short_attachment_id = hash(attachment_id)
+        return f"message_{message_id}_attachment_{short_attachment_id}.txt"
 
 
 class NoCacheStrategy(CachingStrategy):
@@ -421,7 +439,7 @@ class NoCacheStrategy(CachingStrategy):
     def get_cache_state_for_threads(self, thread_ids: List[str], expect_one_message_per_thread):
         return CacheResultItems(thread_ids, cache_type="thread").add_not_cached(thread_ids)
 
-    def get_cache_state_for_message(self, thread_id: str, message_id: str):
+    def get_cache_state_for_message(self, thread_id: str, message_id: str, attachment_id: str):
         return CacheResultItems([thread_id], cache_type="message").add_not_cached([message_id])
 
     def fill_cache(self):
@@ -430,7 +448,9 @@ class NoCacheStrategy(CachingStrategy):
     def process_threads(self, thread_response: Dict[str, Any]):
         LOG.debug(f"Invoked process_threads of {type(self).__name__} with an email thread")
 
-    def process_attachment_for_message(self, thread_id: str, message_id: str, attachment_response: Dict[str, Any]):
+    def process_attachment_for_message(
+        self, thread_id: str, message_id: str, attachment_id: str, attachment_response: Dict[str, Any]
+    ):
         LOG.debug(f"Invoked process_attachment_for_message of {type(self).__name__} with an email attachment")
 
 
@@ -453,16 +473,18 @@ class ApiFetchingContext:
     def process_messages(self, cache_state: CacheResultItems, thread_id: str, message_ids: List[str]):
         self._caching_strategy.actualize_cache_state(cache_state, thread_id, message_ids)
 
-    def process_attachment_for_message(self, thread_id: str, message_id: str, attachment_response: Dict[str, Any]):
-        self._caching_strategy.process_attachment_for_message(thread_id, message_id, attachment_response)
+    def process_attachment_for_message(
+        self, thread_id: str, message_id: str, attachment_id, attachment_response: Dict[str, Any]
+    ):
+        self._caching_strategy.process_attachment_for_message(thread_id, message_id, attachment_id, attachment_response)
 
     def get_cache_state_for_threads(
         self, thread_ids: List[str], expect_one_message_per_thread: bool
     ) -> CacheResultItems:
         return self._caching_strategy.get_cache_state_for_threads(thread_ids, expect_one_message_per_thread)
 
-    def get_cache_state_for_message(self, thread_id: str, message_id: str) -> CacheResultItems:
-        return self._caching_strategy.get_cache_state_for_message(thread_id, message_id)
+    def get_cache_state_for_message(self, thread_id: str, message_id: str, attachment_id: str) -> CacheResultItems:
+        return self._caching_strategy.get_cache_state_for_message(thread_id, message_id, attachment_id)
 
 
 class CachingStrategyType(Enum):
