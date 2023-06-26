@@ -72,11 +72,6 @@ class ThreadQueryParam(Enum):
     FORMAT = "format"
 
 
-class ApiItemType(Enum):
-    THREAD = "thread"
-    MESSAGE = "message"
-
-
 class MimeType(Enum):
     TEXT_PLAIN = "text/plain"
 

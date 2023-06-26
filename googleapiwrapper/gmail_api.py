@@ -1,6 +1,8 @@
+import enum
 import logging
 import sys
 import datetime
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import List, Dict, Any
 
@@ -9,7 +11,6 @@ from pythoncommons.date_utils import timeit
 
 from googleapiwrapper.gmail_api_extensions import CachingStrategyType, ApiFetchingContext, CacheResultItems
 from googleapiwrapper.gmail_domain import (
-    ApiItemType,
     Message,
     MessagePartDescriptor,
     MessagePart,
@@ -37,51 +38,67 @@ CONV_CONTEXT_PREFIX = "[API Conversion context] "
 LOG = logging.getLogger(__name__)
 
 
+class GmailRequestType(enum.Enum):
+    THREADS = "threads"
+    MESSAGES = "messages"
+    USERS = "users"
+    ATTACHMENTS = "attachments"
+
+
 class Progress:
-    def __init__(self, item_type: ApiItemType, limit: int = None):
-        self.requests_count = 0
-        self.all_items_count = 0
-        self.processed_items = 0
-        self.new_items_with_last_request = -1
-        self.item_type = item_type
+    def __init__(self, limit: int = None):
+        self.req_counts: Dict[GmailRequestType, int] = defaultdict(int)
+        self.all_items_count: Dict[GmailRequestType, int] = defaultdict(int)
+        self.processed_items: Dict[GmailRequestType, int] = defaultdict(int)
+        self.new_items_with_last_request: Dict[GmailRequestType, int] = defaultdict(int)
+        self.current_item_id: Dict[GmailRequestType, str] = defaultdict(str)
         self.limit = limit
 
-    def _print_status(self):
+    def _print_status(self, req_type: GmailRequestType, print_all_types=False):
+        if print_all_types:
+            LOG.info(
+                f"[# of requests: {self.req_counts}] "
+                f"Received {self.new_items_with_last_request[req_type]} more {req_type.value}"
+            )
+            return
+
         LOG.info(
-            f"[Request #: {self.requests_count}] "
-            f"Received {self.new_items_with_last_request} more {self.item_type.value}s"
+            f"[# of requests: {self.req_counts[req_type]}] "
+            f"Received {self.new_items_with_last_request[req_type]} more {req_type.value}"
         )
 
-    def incr_requests(self):
-        self.requests_count += 1
+    def incr_requests(self, req_type: GmailRequestType):
+        self.req_counts[req_type] += 1
 
-    def register_new_items(self, number_of_new_items: int, print_status=True):
-        self.all_items_count += number_of_new_items
-        self.new_items_with_last_request = number_of_new_items
+    def register_new_items(
+        self, req_type: GmailRequestType, number_of_new_items: int, print_status=True, print_all_types=False
+    ):
+        self.all_items_count[req_type] += number_of_new_items
+        self.new_items_with_last_request[req_type] = number_of_new_items
         if print_status:
-            self._print_status()
+            self._print_status(req_type, print_all_types=print_all_types)
 
-    def incr_processed_items(self, item_id: str):
-        self.current_item_id = item_id
-        self.processed_items += 1
+    def incr_processed_items(self, req_type: GmailRequestType, item_id: str):
+        self.current_item_id[req_type] = item_id
+        self.processed_items[req_type] += 1
 
-    def is_limit_reached(self):
+    def is_limit_reached(self, req_type: GmailRequestType):
         if self.limit:
-            return self.processed_items > self.limit
+            return self.processed_items[req_type] > self.limit
         return False
 
-    def print_processing_items(self, print_item_id=True):
-        msg = f"Processing {self.item_type.value}s: {self.processed_items} / {self.all_items_count}."
+    def print_processing_items(self, req_type: GmailRequestType, print_item_id=True):
+        msg = f"Processing {req_type.value}: {self.processed_items[req_type]} / {self.all_items_count[req_type]}."
         if print_item_id:
-            msg += f" [Item ID: {self.current_item_id}]"
+            msg += f" [Item ID: {self.current_item_id[req_type]}]"
         LOG.debug(msg)
 
 
 # TODO Move this object as a dependency of ApiFetchingContext
 @auto_str
 class ApiConversionContext:
-    def __init__(self, item_type: ApiItemType, limit: int = None, show_empty_body_errors=True):
-        self.progress = Progress(item_type, limit=limit)
+    def __init__(self, limit: int = None, show_empty_body_errors=True):
+        self.progress = Progress(limit=limit)
         self.decode_errors: List[MessagePartDescriptor] = []
         self.empty_bodies: List[MessagePartDescriptor] = []
         self.show_empty_body_errors = show_empty_body_errors
@@ -228,9 +245,7 @@ class GmailWrapper:
             f"Query: {query}, Limit: {limit}, Expect one message per thread: {expect_one_message_per_thread}"
         )
         LOG.info(f"Querying gmail threads. Config: {query_conf}")
-        module.CONVERSION_CONTEXT = ApiConversionContext(
-            ApiItemType.THREAD, limit=limit, show_empty_body_errors=show_empty_body_errors
-        )
+        module.CONVERSION_CONTEXT = ApiConversionContext(limit=limit, show_empty_body_errors=show_empty_body_errors)
         ctx = CONVERSION_CONTEXT
         kwargs = self._get_new_kwargs()
         if query:
@@ -243,9 +258,9 @@ class GmailWrapper:
         while request is not None:
             response: Dict[str, Any] = request.execute()
             if response:
-                ctx.progress.incr_requests()
+                ctx.progress.incr_requests(GmailRequestType.THREADS)
                 list_of_threads: List[Dict[str, str]] = response.get(ThreadsResponseField.THREADS.value, [])
-                ctx.progress.register_new_items(len(list_of_threads), print_status=True)
+                ctx.progress.register_new_items(GmailRequestType.THREADS, len(list_of_threads), print_status=True)
                 thread_ids: List[str] = [GH.get_field(t, ThreadField.ID) for t in list_of_threads]
                 cache_state: CacheResultItems = self.api_fetching_ctx.get_cache_state_for_threads(
                     thread_ids, expect_one_message_per_thread
@@ -253,11 +268,11 @@ class GmailWrapper:
                 self._log_cache_state_details(cache_state, thread_ids)
                 for idx, thread_id in enumerate(thread_ids):
                     # TODO consider limiting only real sent requests, not processed items!
-                    ctx.progress.incr_processed_items(thread_id)
-                    if ctx.progress.is_limit_reached():
+                    ctx.progress.incr_processed_items(GmailRequestType.THREADS, thread_id)
+                    if ctx.progress.is_limit_reached(GmailRequestType.THREADS):
                         LOG.warning(f"Reached request limit of {limit}, stop processing more items.")
                         return ThreadQueryResults(threads)
-                    ctx.progress.print_processing_items()
+                    ctx.progress.print_processing_items(GmailRequestType.THREADS)
                     thread_resp_full = self._request_thread_or_load_from_cache(thread_id, cache_state, format)
                     # TODO this writes to file even for fully cached threads --> unnecessary disk usage for each cached thread
                     self.api_fetching_ctx.process_thread(thread_resp_full)
