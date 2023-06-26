@@ -39,7 +39,8 @@ LOG = logging.getLogger(__name__)
 
 
 class GmailRequestType(enum.Enum):
-    THREADS = "threads"
+    THREADS_GET = "threads_get"
+    THREADS_LIST = "threads_list"
     MESSAGES = "messages"
     USERS = "users"
     ATTACHMENTS = "attachments"
@@ -432,7 +433,7 @@ class GmailWrapper:
         # TODO print email subject
         LOG.info(f"Requesting gmail thread with ID '{thread_id}', format: {format.value}")
         tdata = self.threads_svc.get(**kwargs).execute()
-        ctx.progress.incr_requests(GmailRequestType.THREADS)
+        ctx.progress.incr_requests(GmailRequestType.THREADS_GET)
         return tdata
 
     def _fetch_attachment(
@@ -456,20 +457,21 @@ class GmailWrapper:
         # TODO implement checking if all messages have the same subject
         pass
 
-    def _request_threads(self, ctx: ApiConversionContext, kwargs, handler_func):
+    def _request_threads(self, ctx: ApiConversionContext, kwargs, response_handler_func):
         request = self.threads_svc.list(**kwargs)
         ctx.threads = GmailThreads()
         while request is not None:
             response: Dict[str, Any] = request.execute()
-            handler_func(ctx, response)
+            ctx.progress.incr_requests(GmailRequestType.THREADS_LIST)
+            response_handler_func(ctx, response)
             request = self.threads_svc.list_next(request, response)
 
     def _threads_response_handler(self, ctx: ApiConversionContext, response):
         progress = ctx.progress
         if response:
-            progress.incr_requests(GmailRequestType.THREADS)
+            rt = GmailRequestType.THREADS_LIST
             list_of_threads: List[Dict[str, str]] = response.get(ThreadsResponseField.THREADS.value, [])
-            progress.register_new_items(GmailRequestType.THREADS, len(list_of_threads), print_status=True)
+            progress.register_new_items(rt, len(list_of_threads), print_status=True)
             thread_ids: List[str] = [GH.get_field(t, ThreadField.ID) for t in list_of_threads]
             cache_state: CacheResultItems = self.api_fetching_ctx.get_cache_state_for_threads(
                 thread_ids, ctx.expect_one_message_per_thread
@@ -477,11 +479,11 @@ class GmailWrapper:
             self._log_cache_state_details(cache_state, thread_ids)
             for idx, thread_id in enumerate(thread_ids):
                 # TODO consider limiting only real sent requests, not processed items!
-                progress.incr_processed_items(GmailRequestType.THREADS, thread_id)
-                if progress.is_limit_reached(GmailRequestType.THREADS):
+                progress.incr_processed_items(rt, thread_id)
+                if progress.is_limit_reached(rt):
                     LOG.warning(f"Reached request limit of {ctx.limit}, stop processing more items.")
                     return ThreadQueryResults(ctx.threads)
-                progress.print_processing_items(GmailRequestType.THREADS)
+                progress.print_processing_items(rt)
                 thread_resp_full = self._request_thread_or_load_from_cache(thread_id, cache_state, ctx)
                 # TODO this writes to file even for fully cached threads --> unnecessary disk usage for each cached thread
                 self.api_fetching_ctx.process_thread(thread_resp_full)
