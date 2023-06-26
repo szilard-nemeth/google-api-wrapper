@@ -283,7 +283,7 @@ class GmailWrapper:
         self._fetch_threads(ctx, kwargs, self._threads_response_handler)
         ctx.handle_encoding_errors()
         LOG.info(f"Finished querying gmail threads. Config: {query_conf}")
-        ctx.progress.print_processing_items()
+        ctx.progress.print_stats()
         return ThreadQueryResults(ctx.threads)
 
     @staticmethod
