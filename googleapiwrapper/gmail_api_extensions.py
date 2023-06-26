@@ -5,7 +5,7 @@ from enum import Enum
 from typing import List, Dict, Any, Set, Iterable, Tuple
 
 from pythoncommons.file_utils import JsonFileUtils, FileUtils, FindResultType
-from pythoncommons.string_utils import auto_str
+from pythoncommons.string_utils import auto_str, StringUtils
 
 from googleapiwrapper.gmail_domain import GenericObjectHelper as GH, ThreadField, MessageField
 from googleapiwrapper.utils import CommonUtils
@@ -428,7 +428,7 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
 
     @staticmethod
     def _get_message_attachment_filename(message_id, attachment_id):
-        short_attachment_id = hash(attachment_id)
+        short_attachment_id = StringUtils.md5_hash(attachment_id)
         return f"message_{message_id}_attachment_{short_attachment_id}.txt"
 
 
