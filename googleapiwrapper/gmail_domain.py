@@ -122,12 +122,29 @@ class Message:
 
     def __post_init__(self):
         self.subject = self._get_subject_from_headers()
+        self.sender = self._get_sender_from_headers()
+        self.sender_email = self._extract_sender_email(self.sender)
+        self.recipient = self._get_recipient_from_headers()
+        self.date_str = self._get_date_from_headers()
         self.message_parts: List[MessagePart] = self._get_all_msg_parts_recursive(self.payload)
 
     def _get_subject_from_headers(self):
+        return self._get_field_from_headers("Subject")
+
+    def _get_sender_from_headers(self):
+        return self._get_field_from_headers("From")
+
+    def _get_recipient_from_headers(self):
+        return self._get_field_from_headers("To")
+
+    def _get_date_from_headers(self):
+        return self._get_field_from_headers("Date")
+
+    def _get_field_from_headers(self, f_name):
         for header in self.payload.headers:
-            if header.name == "Subject":
+            if header.name == f_name:
                 return header.value
+        LOG.error("Header with name '%s' not found for message with thread ID: %s", f_name, self.thread_id)
         return None
 
     def _get_all_msg_parts_recursive(self, msg_part: MessagePart):
@@ -139,6 +156,16 @@ class Message:
 
     def short_str(self):
         return f"{{ ID: {self.id}, snippet: {self.snippet}, subject: {self.subject} }}"
+
+    @staticmethod
+    def _extract_sender_email(sender):
+        try:
+            start = sender.index("<")
+            end = sender.index(">", start + 1)
+            return sender[start + 1 : end]
+        except Exception:
+            LOG.warning("Cannot extract email address from: %s. Using the original sender as email address", sender)
+            return sender
 
 
 @dataclass
