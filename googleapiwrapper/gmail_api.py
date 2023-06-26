@@ -80,10 +80,11 @@ class Progress:
 # TODO Move this object as a dependency of ApiFetchingContext
 @auto_str
 class ApiConversionContext:
-    def __init__(self, item_type: ApiItemType, limit: int = None):
+    def __init__(self, item_type: ApiItemType, limit: int = None, show_empty_body_errors=True):
         self.progress = Progress(item_type, limit=limit)
         self.decode_errors: List[MessagePartDescriptor] = []
         self.empty_bodies: List[MessagePartDescriptor] = []
+        self.show_empty_body_errors = show_empty_body_errors
 
         # Set later
         self.current_message: Message or None = None
@@ -108,7 +109,9 @@ class ApiConversionContext:
         details = self._get_current_message_details(
             gmail_msg_body_part, short_message_part=True, short_gmail_message_body_part=True, log_message=False
         )
-        self._log_error(f"Empty message for thread with ID '{thread_id}'.\n" f"Details:\n{details}")
+        if self.show_empty_body_errors:
+            self._log_error(f"Empty message for thread with ID '{thread_id}'.\n" f"Details:\n{details}")
+
         self.empty_bodies.append(
             MessagePartDescriptor(self.current_message, self.current_message_part, gmail_msg_body_part)
         )
@@ -218,13 +221,16 @@ class GmailWrapper:
         limit: int = None,
         sanity_check=True,
         expect_one_message_per_thread=False,
+        show_empty_body_errors=True,
         format: ThreadQueryFormat = ThreadQueryFormat.FULL,
     ) -> ThreadQueryResults:
         query_conf: str = (
             f"Query: {query}, Limit: {limit}, Expect one message per thread: {expect_one_message_per_thread}"
         )
         LOG.info(f"Querying gmail threads. Config: {query_conf}")
-        module.CONVERSION_CONTEXT = ApiConversionContext(ApiItemType.THREAD, limit=limit)
+        module.CONVERSION_CONTEXT = ApiConversionContext(
+            ApiItemType.THREAD, limit=limit, show_empty_body_errors=show_empty_body_errors
+        )
         ctx = CONVERSION_CONTEXT
         kwargs = self._get_new_kwargs()
         if query:
