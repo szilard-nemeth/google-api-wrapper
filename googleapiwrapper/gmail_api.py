@@ -213,7 +213,12 @@ class GmailWrapper:
 
     @timeit
     def query_threads(
-        self, query: str = None, limit: int = None, sanity_check=True, expect_one_message_per_thread=False
+        self,
+        query: str = None,
+        limit: int = None,
+        sanity_check=True,
+        expect_one_message_per_thread=False,
+        format: ThreadQueryFormat = ThreadQueryFormat.FULL,
     ) -> ThreadQueryResults:
         query_conf: str = (
             f"Query: {query}, Limit: {limit}, Expect one message per thread: {expect_one_message_per_thread}"
@@ -247,7 +252,7 @@ class GmailWrapper:
                         LOG.warning(f"Reached request limit of {limit}, stop processing more items.")
                         return ThreadQueryResults(threads)
                     ctx.progress.print_processing_items()
-                    thread_resp_full = self._request_thread_or_load_from_cache(thread_id, cache_state)
+                    thread_resp_full = self._request_thread_or_load_from_cache(thread_id, cache_state, format)
                     # TODO this writes to file even for fully cached threads --> unnecessary disk usage for each cached thread
                     self.api_fetching_ctx.process_thread(thread_resp_full)
                     thread_obj: Thread = self._convert_to_thread_object(ctx, sanity_check, thread_id, thread_resp_full)
@@ -271,12 +276,22 @@ class GmailWrapper:
 
     def _query_thread_data_minimal(self, thread_id) -> List[str]:
         # Try to query in minimal format first, hoping that some messages are already in cache
-        thread_resp_minimal: Dict[str, Any] = self._query_thread_data(thread_id, full=False)
+        thread_resp_minimal: Dict[str, Any] = self._query_thread_data(thread_id, format=ThreadQueryFormat.MINIMAL)
         messages_response: List[Dict[str, Any]] = GH.get_field(thread_resp_minimal, ThreadField.MESSAGES)
         message_ids: List[str] = [GH.get_field(msg, MessageField.ID) for msg in messages_response]
         return message_ids
 
-    def _request_thread_or_load_from_cache(self, thread_id: str, cache_state: CacheResultItems):
+    def _request_thread_or_load_from_cache(
+        self, thread_id: str, cache_state: CacheResultItems, format: ThreadQueryFormat
+    ):
+        accepted_thread_query_formats = (ThreadQueryFormat.FULL, ThreadQueryFormat.RAW)
+        if format not in accepted_thread_query_formats:
+            raise ValueError(
+                "Expecting Gmail query format to be in: {}. Actual value: {}".format(
+                    accepted_thread_query_formats, format
+                )
+            )
+
         if not cache_state.is_fully_cached(thread_id):
             message_ids: List[str] = self._query_thread_data_minimal(thread_id)
             self.api_fetching_ctx.process_messages(cache_state, thread_id, message_ids)
@@ -286,8 +301,8 @@ class GmailWrapper:
             thread_resp_full = self._get_item_from_cache(cache_state, thread_id)
         else:
             # Not all messages for this thread are in cache.
-            # In this case, we need to retrieve the thread again, now with full format
-            thread_resp_full: Dict[str, Any] = self._query_thread_data(thread_id, full=True)
+            # In this case, we need to retrieve the thread again, now with specified format
+            thread_resp_full: Dict[str, Any] = self._query_thread_data(thread_id, format=format)
         return thread_resp_full
 
     @staticmethod
@@ -393,13 +408,12 @@ class GmailWrapper:
         )
         return message_part_body_obj
 
-    def _query_thread_data(self, thread_id: str, full=True):
-        fmt: ThreadQueryFormat = ThreadQueryFormat.FULL if full else ThreadQueryFormat.MINIMAL
+    def _query_thread_data(self, thread_id: str, format: ThreadQueryFormat = ThreadQueryFormat.MINIMAL):
         kwargs = self._get_new_kwargs()
         kwargs[ThreadField.ID.value] = thread_id
-        kwargs[ThreadQueryParam.FORMAT.value] = fmt.value
+        kwargs[ThreadQueryParam.FORMAT.value] = format.value
         # TODO print email subject
-        LOG.info(f"Requesting gmail thread with ID '{thread_id}', format: {fmt.value}")
+        LOG.info(f"Requesting gmail thread with ID '{thread_id}', format: {format.value}")
         tdata = self.threads_svc.get(**kwargs).execute()
         return tdata
 

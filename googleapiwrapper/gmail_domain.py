@@ -12,9 +12,11 @@ LOG = logging.getLogger(__name__)
 
 
 class ThreadQueryFormat(Enum):
+    # https://developers.google.com/gmail/api/reference/rest/v1/Format
     FULL = "full"
     METADATA = "metadata"
     MINIMAL = "minimal"
+    RAW = "raw"
 
 
 class HeaderField(Enum):
