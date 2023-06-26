@@ -97,13 +97,26 @@ class Progress:
 # TODO Move this object as a dependency of ApiFetchingContext
 @auto_str
 class ApiConversionContext:
-    def __init__(self, limit: int = None, show_empty_body_errors=True):
+    def __init__(
+        self,
+        limit: int = None,
+        show_empty_body_errors=True,
+        query: str = None,
+        format: ThreadQueryFormat = None,
+        sanity_check: bool = False,
+        expect_one_message_per_thread: bool = False,
+    ):
+        self.query = query
+        self.sanity_check = sanity_check
+        self.format = format
+        self.expect_one_message_per_thread = expect_one_message_per_thread
         self.progress = Progress(limit=limit)
+        self.show_empty_body_errors = show_empty_body_errors
         self.decode_errors: List[MessagePartDescriptor] = []
         self.empty_bodies: List[MessagePartDescriptor] = []
-        self.show_empty_body_errors = show_empty_body_errors
 
         # Set later
+        self.threads: GmailThreads or None = None
         self.current_message: Message or None = None
         self.current_message_part: MessagePart or None = None
 
@@ -165,7 +178,7 @@ class ApiConversionContext:
             func(descriptor)
         self.empty_bodies.clear()
 
-    def sanity_check(self, thread_id: str):
+    def perform_sanity_check(self, thread_id: str):
         for desc in self.empty_bodies:
             d_message_id: str = desc.message.id
             d_thread_id: str = desc.message.thread_id
@@ -245,7 +258,14 @@ class GmailWrapper:
             f"Query: {query}, Limit: {limit}, Expect one message per thread: {expect_one_message_per_thread}"
         )
         LOG.info(f"Querying gmail threads. Config: {query_conf}")
-        module.CONVERSION_CONTEXT = ApiConversionContext(limit=limit, show_empty_body_errors=show_empty_body_errors)
+        module.CONVERSION_CONTEXT = ApiConversionContext(
+            query=query,
+            limit=limit,
+            format=format,
+            show_empty_body_errors=show_empty_body_errors,
+            sanity_check=sanity_check,
+            expect_one_message_per_thread=expect_one_message_per_thread,
+        )
         ctx = CONVERSION_CONTEXT
         kwargs = self._get_new_kwargs()
         if query:
@@ -253,41 +273,10 @@ class GmailWrapper:
         if limit and limit < GmailWrapper.DEFAULT_PAGE_SIZE:
             kwargs[ListQueryParam.MAX_RESULTS.value] = limit
 
-        request = self.threads_svc.list(**kwargs)
-        threads = GmailThreads()
-        while request is not None:
-            response: Dict[str, Any] = request.execute()
-            if response:
-                ctx.progress.incr_requests(GmailRequestType.THREADS)
-                list_of_threads: List[Dict[str, str]] = response.get(ThreadsResponseField.THREADS.value, [])
-                ctx.progress.register_new_items(GmailRequestType.THREADS, len(list_of_threads), print_status=True)
-                thread_ids: List[str] = [GH.get_field(t, ThreadField.ID) for t in list_of_threads]
-                cache_state: CacheResultItems = self.api_fetching_ctx.get_cache_state_for_threads(
-                    thread_ids, expect_one_message_per_thread
-                )
-                self._log_cache_state_details(cache_state, thread_ids)
-                for idx, thread_id in enumerate(thread_ids):
-                    # TODO consider limiting only real sent requests, not processed items!
-                    ctx.progress.incr_processed_items(GmailRequestType.THREADS, thread_id)
-                    if ctx.progress.is_limit_reached(GmailRequestType.THREADS):
-                        LOG.warning(f"Reached request limit of {limit}, stop processing more items.")
-                        return ThreadQueryResults(threads)
-                    ctx.progress.print_processing_items(GmailRequestType.THREADS)
-                    thread_resp_full = self._request_thread_or_load_from_cache(thread_id, cache_state, format)
-                    # TODO this writes to file even for fully cached threads --> unnecessary disk usage for each cached thread
-                    self.api_fetching_ctx.process_thread(thread_resp_full)
-                    thread_obj: Thread = self._convert_to_thread_object(ctx, sanity_check, thread_id, thread_resp_full)
-                    threads.add(thread_obj)  # This action will internally create GmailMessage and rest of the stuff
-                    ctx.handle_empty_bodies(
-                        lambda desc: self.request_attachment_or_load_from_cache(
-                            desc, show_empty_body_errors=show_empty_body_errors
-                        )
-                    )
-            request = self.threads_svc.list_next(request, response)
-
+        self._request_threads(ctx, kwargs, self._threads_response_handler)
         ctx.handle_encoding_errors()
         LOG.info(f"Finished querying gmail threads. Config: {query_conf}")
-        return ThreadQueryResults(threads)
+        return ThreadQueryResults(ctx.threads)
 
     @staticmethod
     def _log_cache_state_details(cache_state: CacheResultItems, item_ids: List[str]):
@@ -348,7 +337,7 @@ class GmailWrapper:
         messages: List[Message] = [self.parse_api_message(message) for message in messages_response]
 
         if sanity_check:
-            ctx.sanity_check(thread_id)
+            ctx.perform_sanity_check(thread_id)
 
         arbitrary_msg_subject: str = messages[0].subject
         thread_obj: Thread = Thread(thread_id, arbitrary_msg_subject, messages)
@@ -459,3 +448,40 @@ class GmailWrapper:
     def _sanity_check(self, thread: Thread):
         # TODO implement checking if all messages have the same subject
         pass
+
+    def _request_threads(self, ctx: ApiConversionContext, kwargs, handler_func):
+        request = self.threads_svc.list(**kwargs)
+        ctx.threads = GmailThreads()
+        while request is not None:
+            response: Dict[str, Any] = request.execute()
+            handler_func(ctx, response)
+            request = self.threads_svc.list_next(request, response)
+
+    def _threads_response_handler(self, ctx: ApiConversionContext, response):
+        progress = ctx.progress
+        if response:
+            progress.incr_requests(GmailRequestType.THREADS)
+            list_of_threads: List[Dict[str, str]] = response.get(ThreadsResponseField.THREADS.value, [])
+            progress.register_new_items(GmailRequestType.THREADS, len(list_of_threads), print_status=True)
+            thread_ids: List[str] = [GH.get_field(t, ThreadField.ID) for t in list_of_threads]
+            cache_state: CacheResultItems = self.api_fetching_ctx.get_cache_state_for_threads(
+                thread_ids, ctx.expect_one_message_per_thread
+            )
+            self._log_cache_state_details(cache_state, thread_ids)
+            for idx, thread_id in enumerate(thread_ids):
+                # TODO consider limiting only real sent requests, not processed items!
+                progress.incr_processed_items(GmailRequestType.THREADS, thread_id)
+                if progress.is_limit_reached(GmailRequestType.THREADS):
+                    LOG.warning(f"Reached request limit of {ctx.limit}, stop processing more items.")
+                    return ThreadQueryResults(ctx.threads)
+                progress.print_processing_items(GmailRequestType.THREADS)
+                thread_resp_full = self._request_thread_or_load_from_cache(thread_id, cache_state, ctx.format)
+                # TODO this writes to file even for fully cached threads --> unnecessary disk usage for each cached thread
+                self.api_fetching_ctx.process_thread(thread_resp_full)
+                thread_obj: Thread = self._convert_to_thread_object(ctx, ctx.sanity_check, thread_id, thread_resp_full)
+                ctx.threads.add(thread_obj)  # This action will internally create GmailMessage and rest of the stuff
+                ctx.handle_empty_bodies(
+                    lambda desc: self.request_attachment_or_load_from_cache(
+                        desc, show_empty_body_errors=ctx.show_empty_body_errors
+                    )
+                )
