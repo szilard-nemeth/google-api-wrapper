@@ -195,6 +195,10 @@ class GmailMessage:
     thread_id: str
     subject: str
     date: datetime.datetime
+    sender: str
+    sender_email: str
+    recipient: str
+    date_str: str
     message_parts: InitVar[List[MessagePart]]
 
     def __post_init__(self, message_parts):
@@ -209,7 +213,17 @@ class GmailMessage:
     def from_message(message: Message, thread_id: str):
         GmailMessage._get_conversion_context().register_current_message(message)
         # message.message_parts already contains all MessageParts (recursively collected)
-        return GmailMessage(message.id, thread_id, message.subject, message.date, message.message_parts)
+        return GmailMessage(
+            message.id,
+            thread_id,
+            message.subject,
+            message.date,
+            message.sender,
+            message.sender_email,
+            message.recipient,
+            message.date_str,
+            message.message_parts,
+        )
 
     def _convert_message_parts(self, message_parts: List[MessagePart]) -> List[GmailMessageBodyPart]:
         result: List[GmailMessageBodyPart] = []
