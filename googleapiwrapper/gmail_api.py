@@ -263,7 +263,11 @@ class GmailWrapper:
                     self.api_fetching_ctx.process_thread(thread_resp_full)
                     thread_obj: Thread = self._convert_to_thread_object(ctx, sanity_check, thread_id, thread_resp_full)
                     threads.add(thread_obj)  # This action will internally create GmailMessage and rest of the stuff
-                    ctx.handle_empty_bodies(lambda desc: self.request_attachment_or_load_from_cache(desc))
+                    ctx.handle_empty_bodies(
+                        lambda desc: self.request_attachment_or_load_from_cache(
+                            desc, show_empty_body_errors=show_empty_body_errors
+                        )
+                    )
             request = self.threads_svc.list_next(request, response)
 
         ctx.handle_encoding_errors()
@@ -337,7 +341,7 @@ class GmailWrapper:
             self._sanity_check(thread_obj)
         return thread_obj
 
-    def request_attachment_or_load_from_cache(self, descriptor: MessagePartDescriptor):
+    def request_attachment_or_load_from_cache(self, descriptor: MessagePartDescriptor, show_empty_body_errors=True):
         # Fix MessagePartBody object that has attachmentId only
         # Quoting from API doc for Field 'attachmentId':
         # When present, contains the ID of an external attachment that can be retrieved in a
@@ -347,10 +351,11 @@ class GmailWrapper:
         thread_id: str = descriptor.message.thread_id
         attachment_id = descriptor.message_part.body.attachment_id
         if not message_id or not attachment_id:
-            LOG.error(
-                "Both message_id and attachment_id has to be set in order to load message attachment from cache "
-                f"or to query attachment details from API.\nObject was: {descriptor}"
-            )
+            if show_empty_body_errors:
+                LOG.error(
+                    "Both message_id and attachment_id has to be set in order to load message attachment from cache "
+                    f"or to query attachment details from API.\nObject was: {descriptor}"
+                )
             return
 
         cache_state: CacheResultItems = self.api_fetching_ctx.get_cache_state_for_message(
