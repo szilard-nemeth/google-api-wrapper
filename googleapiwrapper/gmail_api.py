@@ -38,6 +38,14 @@ CONV_CONTEXT_PREFIX = "[API Conversion context] "
 LOG = logging.getLogger(__name__)
 
 
+class GmailRequestLoggerAdapter(logging.LoggerAdapter):
+    def process(self, msg, kwargs):
+        return f"[GMAIL REQUEST] {msg}", kwargs
+
+
+REQ_LOG = GmailRequestLoggerAdapter(LOG, {})
+
+
 class GmailRequestType(enum.Enum):
     THREADS_GET = "threads_get"
     THREADS_LIST = "threads_list"
@@ -55,14 +63,14 @@ class Progress:
         self.current_item_id: Dict[GmailRequestType, str] = defaultdict(str)
         self.limit = limit
 
-    def _print_status(self, req_type: GmailRequestType, print_all_types=False):
-        if print_all_types:
-            LOG.info(
-                f"[# of requests: {self.req_counts}] "
-                f"Received {self.new_items_with_last_request[req_type]} more {req_type.value}"
-            )
-            return
+    def print_stats(self):
+        LOG.info("=" * 50 + "    STATISTICS    " + "=" * 50)
+        LOG.info("# of requests, by type: %s", self.req_counts)
+        LOG.info("All items count, by type: %s", self.all_items_count)
+        LOG.info("Processed items, by type: %s", self.processed_items)
+        LOG.info("=" * 50 + "    END OF STATISTICS    " + "=" * 50)
 
+    def _print_status(self, req_type: GmailRequestType):
         LOG.info(
             f"[# of requests: {self.req_counts[req_type]}] "
             f"Received {self.new_items_with_last_request[req_type]} more {req_type.value}"
@@ -71,13 +79,11 @@ class Progress:
     def incr_requests(self, req_type: GmailRequestType):
         self.req_counts[req_type] += 1
 
-    def register_new_items(
-        self, req_type: GmailRequestType, number_of_new_items: int, print_status=True, print_all_types=False
-    ):
+    def register_new_items(self, req_type: GmailRequestType, number_of_new_items: int, print_status=True):
         self.all_items_count[req_type] += number_of_new_items
         self.new_items_with_last_request[req_type] = number_of_new_items
         if print_status:
-            self._print_status(req_type, print_all_types=print_all_types)
+            self._print_status(req_type)
 
     def incr_processed_items(self, req_type: GmailRequestType, item_id: str):
         self.current_item_id[req_type] = item_id
@@ -274,9 +280,10 @@ class GmailWrapper:
         if limit and limit < GmailWrapper.DEFAULT_PAGE_SIZE:
             kwargs[ListQueryParam.MAX_RESULTS.value] = limit
 
-        self._request_threads(ctx, kwargs, self._threads_response_handler)
+        self._fetch_threads(ctx, kwargs, self._threads_response_handler)
         ctx.handle_encoding_errors()
         LOG.info(f"Finished querying gmail threads. Config: {query_conf}")
+        ctx.progress.print_processing_items()
         return ThreadQueryResults(ctx.threads)
 
     @staticmethod
@@ -431,7 +438,7 @@ class GmailWrapper:
         kwargs[ThreadField.ID.value] = thread_id
         kwargs[ThreadQueryParam.FORMAT.value] = format.value
         # TODO print email subject
-        LOG.info(f"Requesting gmail thread with ID '{thread_id}', format: {format.value}")
+        REQ_LOG.info(f"Requesting gmail thread with ID '{thread_id}', format: {format.value}")
         tdata = self.threads_svc.get(**kwargs).execute()
         ctx.progress.incr_requests(GmailRequestType.THREADS_GET)
         return tdata
@@ -442,7 +449,9 @@ class GmailWrapper:
         kwargs = self._get_new_kwargs()
         kwargs[GetAttachmentParam.MESSAGE_ID.value] = message_id
         kwargs[GetAttachmentParam.ATTACHMENT_ID.value] = attachment_id
-        LOG.info(f"Requesting gmail attachment for message with ID '{message_id}', Thread ID '{thread_id}'")
+        REQ_LOG.info(
+            f"Requesting gmail attachment for message with ID '{message_id}', Thread ID '{thread_id}', Attachment ID '{attachment_id}'"
+        )
         response = self.attachments_svc.get(**kwargs).execute()
         ctx.progress.incr_requests(GmailRequestType.ATTACHMENTS)
         return response
@@ -457,10 +466,11 @@ class GmailWrapper:
         # TODO implement checking if all messages have the same subject
         pass
 
-    def _request_threads(self, ctx: ApiConversionContext, kwargs, response_handler_func):
+    def _fetch_threads(self, ctx: ApiConversionContext, kwargs, response_handler_func):
         request = self.threads_svc.list(**kwargs)
         ctx.threads = GmailThreads()
         while request is not None:
+            REQ_LOG.info("Requesting gmail threads")
             response: Dict[str, Any] = request.execute()
             ctx.progress.incr_requests(GmailRequestType.THREADS_LIST)
             response_handler_func(ctx, response)
