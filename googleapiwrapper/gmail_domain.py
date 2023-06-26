@@ -210,7 +210,7 @@ class GmailMessage:
         empty = False
         try:
             if encoded_body_data:
-                decoded_body_data = Decoder.decode_base64(encoded_body_data)
+                decoded_body_data = Decoder.decode_base64_urlsafe(encoded_body_data)
             else:
                 decoded_body_data = ""
                 empty = True
