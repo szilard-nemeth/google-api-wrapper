@@ -1,5 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Dict, Any, Set, Iterable, Tuple
@@ -7,6 +8,7 @@ from typing import List, Dict, Any, Set, Iterable, Tuple
 from pythoncommons.file_utils import JsonFileUtils, FileUtils, FindResultType
 from pythoncommons.string_utils import auto_str, StringUtils
 
+from googleapiwrapper.gmail_api import GmailRequestType
 from googleapiwrapper.gmail_domain import GenericObjectHelper as GH, ThreadField, MessageField
 from googleapiwrapper.utils import CommonUtils
 
@@ -40,6 +42,60 @@ class CacheMeta:
 
     def __post_init__(self):
         self.type_capitalized = self.type.title()
+
+
+@dataclass
+class CacheMetrics:
+    items_written: int
+    bytes_written: int
+    items_read: int
+    bytes_read: int
+
+    def _combine(self, other):
+        items_written = self.items_written + other.items_written
+        bytes_written = self.bytes_written + other.bytes_written
+        items_read = self.items_read + other.items_read
+        bytes_read = self.bytes_read + other.bytes_read
+        return CacheMetrics(items_written, bytes_written, items_read, bytes_read)
+
+    @staticmethod
+    def create_for_read(items_read, bytes_read):
+        return CacheMetrics(0, 0, items_read, bytes_read)
+
+    @staticmethod
+    def create_for_write(items_written, bytes_written):
+        return CacheMetrics(items_written, bytes_written, 0, 0)
+
+    @staticmethod
+    def create_empty():
+        return CacheMetrics(0, 0, 0, 0)
+
+    @staticmethod
+    def combine(*actions):
+        if not actions:
+            raise ValueError("Expected at least one instance of " + CacheMetrics.__class__.__name__)
+        result = actions[0]
+        for action in range(1, len(actions)):
+            result = result._combine(action)
+        return result
+
+
+class CacheActionsPerformed:
+    def __init__(self):
+        self._latest: Dict[GmailRequestType, CacheMetrics] = defaultdict()
+        self._sum: Dict[GmailRequestType, CacheMetrics] = defaultdict()
+
+    def add(self, request_type: GmailRequestType, metrics: CacheMetrics, log_last=True, log_sum=True):
+        self._latest[request_type] = metrics
+        self._sum[request_type] = self._sum[request_type].combine(metrics)
+        self.log(request_type, log_last, log_sum)
+
+    def log(self, request_type, log_last, log_sum):
+        if log_last:
+            LOG.debug("Added metrics for %s: %s", request_type, self._latest[request_type])
+        if log_sum:
+            for req_type, metrics in self._sum.items():
+                LOG.debug("Sum metrics for %s: %s", req_type, metrics)
 
 
 @auto_str
@@ -253,6 +309,7 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         self.threads_dir = FileUtils.ensure_dir_created(
             FileUtils.join_path(self.project_acct_basedir, THREADS_DIR_NAME)
         )
+        self._cache_actions_performed = CacheActionsPerformed()
         super().__init__(output_basedir, project_name, user_email)
 
     def get_cached_threads(self):
@@ -264,26 +321,31 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         )
         self.cached_thread_ids.extend(found_thread_dirnames)
         for thread_id in self.cached_thread_ids:
-            self._load_message_data_from_file(thread_id)
+            metrics = self._load_message_data_from_file(thread_id)
+            self._cache_actions_performed.add(GmailRequestType.MESSAGES, metrics)
+
         LOG.trace(f"Loaded message data: {self.thread_to_message_data}")
 
-    def _load_message_data_from_file(self, thread_id):
+    def _load_message_data_from_file(self, thread_id) -> CacheMetrics:
         """
         Load all message IDs for all threads but loading all payloads into memory would be costly
         so they are skipped here
         Example message data: [{'message_date': '1620084692000', 'message_id': '1793492a16dc62b5'}]
         """
         message_data_file = FileUtils.join_path(self.threads_dir, thread_id, MESSAGE_DATA_FILENAME)
-        list_of_message_data: List[Dict[str, str]] = self._load_data_from_file(message_data_file)
+        list_of_message_data, metrics = self._load_data_from_file(message_data_file)
         self.thread_to_message_data[thread_id] = {
             msg_data[MESSAGE_ID]: msg_data[MESSAGE_DATE] for msg_data in list_of_message_data
         }
+        return metrics
 
     def process_threads(self, thread_response: Dict[str, Any]):
         # TODO only write to file if required, i.e. thread is not fully cached. Also, make this configurable
         thread_id: str = GH.get_field(thread_response, ThreadField.ID)
-        thread_dir: str = self._write_thread_data_to_file(thread_id, thread_response)
-        self._write_message_data_to_file(thread_dir, thread_response)
+        thread_dir, metrics_1 = self._write_thread_data_to_file(thread_id, thread_response)
+        metrics_2 = self._write_message_data_to_file(thread_dir, thread_response)
+        metrics = CacheMetrics.combine(metrics_1, metrics_2)
+        self._cache_actions_performed.add(GmailRequestType.THREADS_GET, metrics)
 
     def process_attachment_for_message(
         self, thread_id: str, message_id: str, attachment_id: str, attachment_response: Dict[str, Any]
@@ -291,26 +353,29 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         msg_attachment_filename = self._get_attachment_filename(
             thread_id, message_id, attachment_id, create_messages_dir=True
         )
-        self._write_to_file(msg_attachment_filename, attachment_response)
+        metrics = self._write_to_file(msg_attachment_filename, attachment_response)
+        self._cache_actions_performed.add(GmailRequestType.ATTACHMENTS, metrics)
 
-    def _write_thread_data_to_file(self, thread_id: str, thread_response):
+    def _write_thread_data_to_file(self, thread_id: str, thread_response) -> Tuple[str, CacheMetrics]:
         current_thread_dir = FileUtils.ensure_dir_created(FileUtils.join_path(self.threads_dir, thread_id))
         raw_thread_json_file = FileUtils.join_path(current_thread_dir, THREAD_JSON_FILENAME)
-        self._write_to_file(raw_thread_json_file, thread_response)
-        return current_thread_dir
+        metrics = self._write_to_file(raw_thread_json_file, thread_response)
+        return current_thread_dir, metrics
 
-    def _write_message_data_to_file(self, thread_dir: str, thread_response):
+    def _write_message_data_to_file(self, thread_dir: str, thread_response) -> CacheMetrics:
         message_data_dicts: List[Dict[str, str]] = self._convert_thread_response_to_message_data_dicts(thread_response)
         message_data_file = FileUtils.join_path(thread_dir, MESSAGE_DATA_FILENAME)
-        self._write_to_file(message_data_file, message_data_dicts)
+        return self._write_to_file(message_data_file, message_data_dicts)
 
     @staticmethod
-    def _load_data_from_file(file):
-        return JsonFileUtils.load_data_from_json_file(file)
+    def _load_data_from_file(file) -> Tuple[List[Dict[str, str]], CacheMetrics]:
+        data, bytes_read = JsonFileUtils.load_data_from_json_file(file)
+        return data, CacheMetrics.create_for_read(1, bytes_read)
 
     @staticmethod
-    def _write_to_file(file, data):
-        JsonFileUtils.write_data_to_file_as_json(file, data, pretty=True)
+    def _write_to_file(file, data) -> CacheMetrics:
+        bytes_written = JsonFileUtils.write_data_to_file_as_json(file, data, pretty=True)
+        return CacheMetrics.create_for_write(1, bytes_written)
 
     def get_cache_state_for_threads(self, thread_ids: List[str], expect_one_message_per_thread: bool):
         unknown_thread_ids: Set[str] = set(thread_ids).difference(set(self.cached_thread_ids))
@@ -322,9 +387,10 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
             fully_cached = {}
             for t_id in self.cached_thread_ids:
                 try:
-                    fully_cached[t_id] = self._get_thread_from_file_system(t_id)
+                    fully_cached[t_id], metrics = self._get_thread_from_file_system(t_id)
+                    self._cache_actions_performed.add(GmailRequestType.THREADS_LIST, metrics)
                 except Exception as e:
-                    LOG.error("Error when processing thread.", e)
+                    LOG.error("Error while processing thread.", e)
                     LOG.warning("Cannot open file for thread: %s. Adding it to not cached threads.", t_id)
                     unknown_thread_ids.add(t_id)
 
@@ -396,7 +462,7 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
             FileUtils.ensure_dir_created(messages_dir)
         return messages_dir
 
-    def _get_thread_from_file_system(self, thread_id: str):
+    def _get_thread_from_file_system(self, thread_id: str) -> Tuple[Any, CacheMetrics]:
         """
         Caution: This loads all thread data into memory including message payloads.
         !!Use it with care!!
@@ -415,9 +481,10 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         self.unknown_message_per_thread[thread_id] = set(message_ids).difference(message_ids_for_thread)
         if self.unknown_message_per_thread[thread_id]:
             cache_state.mark_partially_cached(thread_id)
-            return
         # Thread is fully cached with all messages
-        cache_state.mark_fully_cached(thread_id, self._get_thread_from_file_system(thread_id))
+        data, metrics = self._get_thread_from_file_system(thread_id)
+        cache_state.mark_fully_cached(thread_id, data)
+        self._cache_actions_performed.add(GmailRequestType.MESSAGES, metrics)
 
     @staticmethod
     def _convert_thread_response_to_message_data_dicts(thread_response):
@@ -464,7 +531,6 @@ class NoCacheStrategy(CachingStrategy):
 class ApiFetchingContext:
     def __init__(self, strategy: CachingStrategy) -> None:
         # TODO log debug cache strategy type
-        # TODO Track file writes with progress class
         self._caching_strategy = strategy
 
     @property
@@ -486,9 +552,7 @@ class ApiFetchingContext:
     ):
         self._caching_strategy.process_attachment_for_message(thread_id, message_id, attachment_id, attachment_response)
 
-    def get_cache_state_for_threads(
-        self, thread_ids: List[str], expect_one_message_per_thread: bool
-    ) -> CacheResultItems:
+    def get_cache_state_for_threads(self, thread_ids: List[str], expect_one_message_per_thread: bool):
         return self._caching_strategy.get_cache_state_for_threads(thread_ids, expect_one_message_per_thread)
 
     def get_cache_state_for_message(self, thread_id: str, message_id: str, attachment_id: str) -> CacheResultItems:
