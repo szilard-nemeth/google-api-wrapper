@@ -484,10 +484,11 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         self.unknown_message_per_thread[thread_id] = set(message_ids).difference(message_ids_for_thread)
         if self.unknown_message_per_thread[thread_id]:
             cache_state.mark_partially_cached(thread_id)
-        # Thread is fully cached with all messages
-        data, metrics = self._get_thread_from_file_system(thread_id)
-        cache_state.mark_fully_cached(thread_id, data)
-        self._cache_actions_performed.add(GmailRequestType.MESSAGES, metrics)
+        else:
+            # Thread is fully cached with all messages
+            data, metrics = self._get_thread_from_file_system(thread_id)
+            self._cache_actions_performed.add(GmailRequestType.MESSAGES, metrics)
+            cache_state.mark_fully_cached(thread_id, data)
 
     @staticmethod
     def _convert_thread_response_to_message_data_dicts(thread_response):
