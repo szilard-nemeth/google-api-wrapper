@@ -231,6 +231,10 @@ class CachingStrategy(ABC):
     def get_cache_state_for_message(self, thread_id: str, message_id: str, attachment_id: str):
         pass
 
+    @abstractmethod
+    def get_cached_threads(self):
+        pass
+
 
 class FileSystemEmailThreadCacheStrategy(CachingStrategy):
     def __init__(self, output_basedir: str, project_name: str, user_email: str):
@@ -250,6 +254,9 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
             FileUtils.join_path(self.project_acct_basedir, THREADS_DIR_NAME)
         )
         super().__init__(output_basedir, project_name, user_email)
+
+    def get_cached_threads(self):
+        return self.thread_to_message_data.keys()
 
     def fill_cache(self):
         found_thread_dirnames: List[str] = FileUtils.find_files(
@@ -433,6 +440,10 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
 
 
 class NoCacheStrategy(CachingStrategy):
+    def get_cached_threads(self):
+        LOG.debug(f"Invoked get_cached_threads of {type(self).__name__}")
+        return []
+
     def actualize_cache_state(self, cache_state: CacheResultItems, thread_id: str, message_ids: List[str]):
         LOG.debug(f"Invoked actualize_cache_state of {type(self).__name__}")
 
@@ -485,6 +496,9 @@ class ApiFetchingContext:
 
     def get_cache_state_for_message(self, thread_id: str, message_id: str, attachment_id: str) -> CacheResultItems:
         return self._caching_strategy.get_cache_state_for_message(thread_id, message_id, attachment_id)
+
+    def get_cached_threads(self) -> List[str]:
+        return self._caching_strategy.get_cached_threads()
 
 
 class CachingStrategyType(Enum):

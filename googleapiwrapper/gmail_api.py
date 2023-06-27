@@ -260,6 +260,7 @@ class GmailWrapper:
         expect_one_message_per_thread=False,
         show_empty_body_errors=True,
         format: ThreadQueryFormat = ThreadQueryFormat.FULL,
+        offline: bool = False,
     ) -> ThreadQueryResults:
         query_conf: str = (
             f"Query: {query}, Limit: {limit}, Expect one message per thread: {expect_one_message_per_thread}"
@@ -280,7 +281,14 @@ class GmailWrapper:
         if limit and limit < GmailWrapper.DEFAULT_PAGE_SIZE:
             kwargs[ListQueryParam.MAX_RESULTS.value] = limit
 
-        self._fetch_threads(ctx, kwargs, self._threads_response_handler)
+        if not offline:
+            self._fetch_threads(ctx, kwargs, self._threads_response_handler)
+        else:
+            rt = GmailRequestType.THREADS_LIST
+            ctx.threads = GmailThreads()
+            thread_ids = self.api_fetching_ctx.get_cached_threads()
+            ctx.progress.register_new_items(rt, len(thread_ids), print_status=True)
+            self._process_threads(ctx, rt, thread_ids)
         ctx.handle_encoding_errors()
         LOG.info(f"Finished querying gmail threads. Config: {query_conf}")
         ctx.progress.print_stats()
@@ -483,20 +491,25 @@ class GmailWrapper:
             list_of_threads: List[Dict[str, str]] = response.get(ThreadsResponseField.THREADS.value, [])
             progress.register_new_items(rt, len(list_of_threads), print_status=True)
             thread_ids: List[str] = [GH.get_field(t, ThreadField.ID) for t in list_of_threads]
-            cache_state: CacheResultItems = self.api_fetching_ctx.get_cache_state_for_threads(
-                thread_ids, ctx.expect_one_message_per_thread
-            )
-            self._log_cache_state_details(cache_state, thread_ids)
-            for idx, thread_id in enumerate(thread_ids):
-                # TODO consider limiting only real sent requests, not processed items!
-                progress.incr_processed_items(rt, thread_id)
-                if progress.is_limit_reached(rt):
-                    LOG.warning(f"Reached request limit of {ctx.limit}, stop processing more items.")
-                    return ThreadQueryResults(ctx.threads)
-                progress.print_processing_items(rt)
-                thread_resp_full = self._request_thread_or_load_from_cache(thread_id, cache_state, ctx)
-                # TODO this writes to file even for fully cached threads --> unnecessary disk usage for each cached thread
-                self.api_fetching_ctx.process_thread(thread_resp_full)
-                thread_obj: Thread = self._convert_to_thread_object(ctx, ctx.sanity_check, thread_id, thread_resp_full)
-                ctx.threads.add(thread_obj)  # This action will internally create GmailMessage and rest of the stuff
-                ctx.handle_empty_bodies(lambda desc: self.request_attachment_or_load_from_cache(desc, ctx))
+            self._process_threads(ctx, rt, thread_ids)
+
+    def _process_threads(self, ctx: ApiConversionContext, rt: GmailRequestType, thread_ids: List[str]):
+        progress = ctx.progress
+
+        cache_state: CacheResultItems = self.api_fetching_ctx.get_cache_state_for_threads(
+            thread_ids, ctx.expect_one_message_per_thread
+        )
+        self._log_cache_state_details(cache_state, thread_ids)
+        for idx, thread_id in enumerate(thread_ids):
+            # TODO consider limiting only real sent requests, not processed items!
+            progress.incr_processed_items(rt, thread_id)
+            if progress.is_limit_reached(rt):
+                LOG.warning(f"Reached request limit of {ctx.limit}, stop processing more items.")
+                return ThreadQueryResults(ctx.threads)
+            progress.print_processing_items(rt)
+            thread_resp_full = self._request_thread_or_load_from_cache(thread_id, cache_state, ctx)
+            # TODO this writes to file even for fully cached threads --> unnecessary disk usage for each cached thread
+            self.api_fetching_ctx.process_thread(thread_resp_full)
+            thread_obj: Thread = self._convert_to_thread_object(ctx, ctx.sanity_check, thread_id, thread_resp_full)
+            ctx.threads.add(thread_obj)  # This action will internally create GmailMessage and rest of the stuff
+            ctx.handle_empty_bodies(lambda desc: self.request_attachment_or_load_from_cache(desc, ctx))
