@@ -1,4 +1,3 @@
-import enum
 import logging
 import sys
 import datetime
@@ -9,7 +8,9 @@ from typing import List, Dict, Any
 from googleapiclient.discovery import build
 from pythoncommons.date_utils import timeit
 
-from googleapiwrapper.gmail_api_extensions import CachingStrategyType, ApiFetchingContext, CacheResultItems
+from googleapiwrapper.gmail_api_extensions import ApiFetchingContext
+from googleapiwrapper.gmail_cache import CacheResultItems, CachingStrategyType
+from googleapiwrapper.gmail_common import GmailRequestType
 from googleapiwrapper.gmail_domain import (
     Message,
     MessagePartDescriptor,
@@ -44,14 +45,6 @@ class GmailRequestLoggerAdapter(logging.LoggerAdapter):
 
 
 REQ_LOG = GmailRequestLoggerAdapter(LOG, {})
-
-
-class GmailRequestType(enum.Enum):
-    THREADS_GET = "threads_get"
-    THREADS_LIST = "threads_list"
-    MESSAGES = "messages"
-    USERS = "users"
-    ATTACHMENTS = "attachments"
 
 
 class Progress:
