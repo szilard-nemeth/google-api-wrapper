@@ -125,6 +125,7 @@ class Message:
         self.sender = self._get_sender_from_headers()
         self.sender_email = self._extract_sender_email(self.sender)
         self.recipient = self._get_recipient_from_headers()
+        self.recipient_email = self._extract_recipient_email(self.recipient)
         self.date_str = self._get_date_from_headers()
         self.message_parts: List[MessagePart] = self._get_all_msg_parts_recursive(self.payload)
 
@@ -158,14 +159,24 @@ class Message:
         return f"{{ ID: {self.id}, snippet: {self.snippet}, subject: {self.subject} }}"
 
     @staticmethod
-    def _extract_sender_email(sender):
+    def _extract_sender_email(s):
+        return Message._extract_email_from_raw(s, "sender")
+
+    @staticmethod
+    def _extract_recipient_email(r):
+        return Message._extract_email_from_raw(r, "recipient")
+
+    @staticmethod
+    def _extract_email_from_raw(raw_str, item_type):
         try:
-            start = sender.index("<")
-            end = sender.index(">", start + 1)
-            return sender[start + 1 : end]
+            start = raw_str.index("<")
+            end = raw_str.index(">", start + 1)
+            return raw_str[start + 1 : end]
         except Exception:
-            LOG.warning("Cannot extract email address from: %s. Using the original sender as email address", sender)
-            return sender
+            LOG.warning(
+                "Cannot extract email address from: %s. Using the original %s as email address", raw_str, item_type
+            )
+            return raw_str
 
 
 @dataclass
@@ -198,6 +209,7 @@ class GmailMessage:
     sender: str
     sender_email: str
     recipient: str
+    recipient_email: str
     date_str: str
     message_parts: InitVar[List[MessagePart]]
 
@@ -221,6 +233,7 @@ class GmailMessage:
             message.sender,
             message.sender_email,
             message.recipient,
+            message.recipient_email,
             message.date_str,
             message.message_parts,
         )
