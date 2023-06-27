@@ -38,3 +38,6 @@ class ApiFetchingContext:
 
     def get_cached_threads(self) -> List[str]:
         return self._caching_strategy.get_cached_threads()
+
+    def print_cache_actions(self):
+        self._caching_strategy.print_actions_performed()

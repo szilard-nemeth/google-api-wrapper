@@ -82,23 +82,40 @@ class CacheMetrics:
             result = result._combine(actions[i])
         return result
 
+    def __str__(self):
+        return (
+            self.__class__.__name__
+            + " { "
+            + "items written: "
+            + str(self.items_written)
+            + ", bytes written (dynamic): "
+            + StringUtils.format_bytes_as_str(self.bytes_written)
+            + ", items read: "
+            + str(self.items_read)
+            + ", bytes read (dynamic): "
+            + StringUtils.format_bytes_as_str(self.bytes_read)
+            + " }"
+        )
+
 
 class CacheActionsPerformed:
     def __init__(self):
         self._latest: Dict["GmailRequestType", CacheMetrics] = defaultdict(CacheMetrics.create_empty)
         self._sum: Dict["GmailRequestType", CacheMetrics] = defaultdict(CacheMetrics.create_empty)
 
-    def add(self, request_type: "GmailRequestType", metrics: CacheMetrics, log_last=True, log_sum=True):
+    def add(self, request_type: "GmailRequestType", metrics: CacheMetrics):
         self._latest[request_type] = metrics
         self._sum[request_type] = self._sum[request_type].combine(metrics)
-        self.log(request_type, log_last, log_sum)
+        self.log(request_type)
 
-    def log(self, request_type, log_last, log_sum):
-        if log_last:
-            LOG.debug("Added metrics for %s: %s", request_type, self._latest[request_type])
-        if log_sum:
-            for req_type, metrics in self._sum.items():
-                LOG.debug("Sum metrics for %s: %s", req_type, metrics)
+    def log(self, request_type):
+        LOG.trace("Added metrics for %s: %s", request_type, self._latest[request_type])
+        for req_type, metrics in self._sum.items():
+            LOG.trace("Sum metrics for %s: %s", req_type, metrics)
+
+    def print_all(self):
+        for req_type, metrics in self._sum.items():
+            LOG.info("Sum metrics for %s: %s", req_type, metrics)
 
 
 @auto_str
@@ -292,6 +309,10 @@ class CachingStrategy(ABC):
 
     @abstractmethod
     def get_cached_threads(self):
+        pass
+
+    @abstractmethod
+    def print_actions_performed(self):
         pass
 
 
@@ -505,6 +526,9 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         short_attachment_id = StringUtils.md5_hash(attachment_id)
         return f"message_{message_id}_attachment_{short_attachment_id}.txt"
 
+    def print_actions_performed(self):
+        self._cache_actions_performed.print_all()
+
 
 class NoCacheStrategy(CachingStrategy):
     def get_cached_threads(self):
@@ -530,6 +554,9 @@ class NoCacheStrategy(CachingStrategy):
         self, thread_id: str, message_id: str, attachment_id: str, attachment_response: Dict[str, Any]
     ):
         LOG.debug(f"Invoked process_attachment_for_message of {type(self).__name__} with an email attachment")
+
+    def print_actions_performed(self):
+        LOG.info("No cache actions were performed!")
 
 
 class CachingStrategyType(Enum):

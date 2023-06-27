@@ -510,3 +510,5 @@ class GmailWrapper:
             thread_obj: Thread = self._convert_to_thread_object(ctx, ctx.sanity_check, thread_id, thread_resp_full)
             ctx.threads.add(thread_obj)  # This action will internally create GmailMessage and rest of the stuff
             ctx.handle_empty_bodies(lambda desc: self.request_attachment_or_load_from_cache(desc, ctx))
+
+        self.api_fetching_ctx.print_cache_actions()
