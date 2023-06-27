@@ -78,8 +78,8 @@ class CacheMetrics:
         if not actions:
             raise ValueError("Expected at least one instance of " + CacheMetrics.__class__.__name__)
         result = actions[0]
-        for action in range(1, len(actions)):
-            result = result._combine(action)
+        for i in range(1, len(actions)):
+            result = result._combine(actions[i])
         return result
 
 
