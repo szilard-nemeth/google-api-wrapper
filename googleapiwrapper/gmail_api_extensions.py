@@ -291,21 +291,17 @@ class FileSystemEmailThreadCacheStrategy(CachingStrategy):
         msg_attachment_filename = self._get_attachment_filename(
             thread_id, message_id, attachment_id, create_messages_dir=True
         )
-
-        # TODO check hash of attachment_response vs. file contents before writing it out to file
         self._write_to_file(msg_attachment_filename, attachment_response)
 
     def _write_thread_data_to_file(self, thread_id: str, thread_response):
         current_thread_dir = FileUtils.ensure_dir_created(FileUtils.join_path(self.threads_dir, thread_id))
         raw_thread_json_file = FileUtils.join_path(current_thread_dir, THREAD_JSON_FILENAME)
-        # TODO check hash of thread_response vs. file contents before writing it out to file
         self._write_to_file(raw_thread_json_file, thread_response)
         return current_thread_dir
 
     def _write_message_data_to_file(self, thread_dir: str, thread_response):
         message_data_dicts: List[Dict[str, str]] = self._convert_thread_response_to_message_data_dicts(thread_response)
         message_data_file = FileUtils.join_path(thread_dir, MESSAGE_DATA_FILENAME)
-        # TODO check hash of attachment_response vs. file contents before writing it out to file
         self._write_to_file(message_data_file, message_data_dicts)
 
     @staticmethod
@@ -468,6 +464,7 @@ class NoCacheStrategy(CachingStrategy):
 class ApiFetchingContext:
     def __init__(self, strategy: CachingStrategy) -> None:
         # TODO log debug cache strategy type
+        # TODO Track file writes with progress class
         self._caching_strategy = strategy
 
     @property

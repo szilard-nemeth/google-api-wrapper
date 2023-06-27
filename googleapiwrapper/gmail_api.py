@@ -314,6 +314,7 @@ class GmailWrapper:
     def _request_thread_or_load_from_cache(
         self, thread_id: str, cache_state: CacheResultItems, ctx: ApiConversionContext
     ):
+        loaded_from_cache = False
         accepted_thread_query_formats = (ThreadQueryFormat.FULL, ThreadQueryFormat.RAW)
         if ctx.format not in accepted_thread_query_formats:
             raise ValueError(
@@ -329,11 +330,12 @@ class GmailWrapper:
         # Check if thread is now considered as fully cached, given the provided message IDs above
         if cache_state.is_fully_cached(thread_id):
             thread_resp_full = self._get_item_from_cache(cache_state, thread_id)
+            loaded_from_cache = True
         else:
             # Not all messages for this thread are in cache.
             # In this case, we need to retrieve the thread again, now with specified format
             thread_resp_full: Dict[str, Any] = self._fetch_thread_data(thread_id, ctx, format=ctx.format)
-        return thread_resp_full
+        return thread_resp_full, loaded_from_cache
 
     @staticmethod
     def _get_item_from_cache(cache_state: CacheResultItems, item_id):
@@ -386,7 +388,9 @@ class GmailWrapper:
             attachment_response = self._get_item_from_cache(cache_state, thread_id)
         else:
             attachment_response: Dict[str, Any] = self._fetch_attachment(ctx, thread_id, message_id, attachment_id)
-        self.api_fetching_ctx.process_attachment_for_message(thread_id, message_id, attachment_id, attachment_response)
+            self.api_fetching_ctx.process_attachment_for_message(
+                thread_id, message_id, attachment_id, attachment_response
+            )
 
         # Fix the GmailMessageBodyPart object's body_data property with the contents of the attachment.
         # TODO consider storing FS instead of whole file contents in memory?
@@ -507,9 +511,9 @@ class GmailWrapper:
                 LOG.warning(f"Reached request limit of {ctx.limit}, stop processing more items.")
                 return ThreadQueryResults(ctx.threads)
             progress.print_processing_items(rt)
-            thread_resp_full = self._request_thread_or_load_from_cache(thread_id, cache_state, ctx)
-            # TODO this writes to file even for fully cached threads --> unnecessary disk usage for each cached thread
-            self.api_fetching_ctx.process_thread(thread_resp_full)
+            thread_resp_full, loaded_from_cache = self._request_thread_or_load_from_cache(thread_id, cache_state, ctx)
+            if not loaded_from_cache:
+                self.api_fetching_ctx.process_thread(thread_resp_full)
             thread_obj: Thread = self._convert_to_thread_object(ctx, ctx.sanity_check, thread_id, thread_resp_full)
             ctx.threads.add(thread_obj)  # This action will internally create GmailMessage and rest of the stuff
             ctx.handle_empty_bodies(lambda desc: self.request_attachment_or_load_from_cache(desc, ctx))
