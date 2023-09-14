@@ -682,6 +682,12 @@ class DriveApiWrapper:
                 # TODO
                 print(response)
 
+    def remove_file(self, file: DriveApiFile):
+        request = self.files_service.delete(fileId=file.id)
+        response = request.execute()
+        # TODO Handle response / error handling
+        print(response)
+
     def _create_folder_structure(self, path: str) -> DriveFileStructure:
         structure: DriveFileStructure = DriveFileStructure(path)
         for folder_name in structure:
