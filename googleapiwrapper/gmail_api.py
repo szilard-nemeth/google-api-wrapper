@@ -501,7 +501,7 @@ class GmailWrapper:
             # TODO consider limiting only real sent requests, not processed items!
             progress.incr_processed_items(rt, thread_id)
             if progress.is_limit_reached(rt):
-                LOG.warning(f"Reached request limit of {ctx.limit}, stop processing more items.")
+                LOG.warning(f"Reached request limit of {progress.limit}, stop processing more items.")
                 return ThreadQueryResults(ctx.threads)
             progress.print_processing_items(rt)
             thread_resp_full, loaded_from_cache = self._request_thread_or_load_from_cache(thread_id, cache_state, ctx)
