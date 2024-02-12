@@ -6,6 +6,7 @@ class ServiceType(Enum):
     GMAIL = ("gmail", ["https://www.googleapis.com/auth/gmail.readonly"], "v1")
     SHEETS = ("sheets", ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"], "v3")
     CALENDAR = ("calendar", ["https://www.googleapis.com/auth/calendar.readonly"], "v3")
+    CALENDAR_WRITE = ("calendar", ["https://www.googleapis.com/auth/calendar"], "v3")
 
     def __init__(self, name, scopes, api_version):
         self.service_name = name

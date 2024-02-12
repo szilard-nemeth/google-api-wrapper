@@ -17,11 +17,11 @@ def main():
         project_name="calendarutils",
         secret_basedir=SECRET_PROJECTS_DIR,
         account_email="snemeth@cloudera.com",
-        scopes=ServiceType.CALENDAR.default_scopes,
+        scopes=ServiceType.CALENDAR_WRITE.default_scopes,
     )
     wrapper = CalendarApiWrapper(authorizer)
     wrapper.print_events()
-
+    wrapper.test_create_event()
 
 
 if __name__ == "__main__":
