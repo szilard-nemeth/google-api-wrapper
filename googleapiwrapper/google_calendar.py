@@ -1,3 +1,4 @@
+import datetime
 import logging
 
 from googleapiclient.discovery import build
@@ -44,3 +45,17 @@ class CalendarApiWrapper:
             return
 
         return events
+
+    def print_events(self, max_results=100):
+        """Shows basic usage of the Google Calendar API.
+        Prints the start and name of the next 10 events on the user's calendar.
+        """
+        # Call the Calendar API
+        now = datetime.datetime.utcnow().isoformat() + "Z"  # 'Z' indicates UTC time
+        LOG.info("Getting the upcoming %d events", max_results)
+        events = self.list_events(min_time=now, max_results=max_results)
+
+        # Prints the start and name of the next 10 events
+        for event in events:
+            start = event["start"].get("dateTime", event["start"].get("date"))
+            LOG.info("EVENT: %s %s", start, event["summary"])
