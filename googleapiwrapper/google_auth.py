@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import List
 
+from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -121,7 +122,10 @@ class GoogleApiAuthorizer:
         if authed_session:
             creds = authed_session.authed_creds
             if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
+                try:
+                    creds.refresh(Request())
+                except RefreshError as e:
+                    LOG.error("Error while refreshing token. Try to remove file: %s", self.token_full_path)
         else:
             flow = InstalledAppFlow.from_client_secrets_file(self.credentials_full_path, self.scopes)
             authed_creds: Credentials = flow.run_local_server(port=self.server_port, prompt="consent")
