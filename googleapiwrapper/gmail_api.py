@@ -308,7 +308,7 @@ class GmailWrapper:
         self, thread_id: str, cache_state: CacheResultItems, ctx: ApiConversionContext
     ):
         loaded_from_cache = False
-        accepted_thread_query_formats = (ThreadQueryFormat.FULL, ThreadQueryFormat.RAW)
+        accepted_thread_query_formats = (ThreadQueryFormat.FULL, ThreadQueryFormat.RAW, ThreadQueryFormat.METADATA)
         if ctx.format not in accepted_thread_query_formats:
             raise ValueError(
                 "Expecting Gmail query format to be in: {}. Actual value: {}".format(
@@ -402,6 +402,8 @@ class GmailWrapper:
         )
 
     def parse_message_part(self, message_part, message_id: str) -> MessagePart:
+        if not message_part:
+            return None
         message_parts = GH.get_field(message_part, MessagePartField.PARTS, [])
         headers = self._parse_headers(message_part)
         message_part_obj: MessagePart = MessagePart(
@@ -429,6 +431,8 @@ class GmailWrapper:
 
     @staticmethod
     def _parse_message_part_body_obj(messagepart_body: Dict[str, Any]):
+        if not messagepart_body:
+            return None
         message_part_body_obj = MessagePartBody(
             GH.get_field(messagepart_body, MessagePartBodyField.DATA),
             GH.get_field(messagepart_body, MessagePartBodyField.SIZE),

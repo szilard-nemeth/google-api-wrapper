@@ -101,11 +101,12 @@ class MessagePart:
     parts: List[Any]  # Cannot refer to MessagePart :(
 
     def short_str(self):
+        body_short_str = self.body.short_str() if self.body else "N/A"
         return (
             f"{{ ID: {self.id}, "
             f"mime_type: {self.mime_type}, "
             f"headers: {self.headers}, "
-            f"body (short): {self.body.short_str()}, "
+            f"body (short): {body_short_str}, "
             f"parts (short): {[part.short_str() for part in self.parts]} }}"
         )
 
@@ -142,6 +143,8 @@ class Message:
         return self._get_field_from_headers("Date")
 
     def _get_field_from_headers(self, f_name):
+        if not self.payload:
+            raise ValueError(f"Payload not found for message. Thread ID: {self.thread_id}")
         for header in self.payload.headers:
             if header.name == f_name:
                 return header.value
@@ -149,6 +152,8 @@ class Message:
         return None
 
     def _get_all_msg_parts_recursive(self, msg_part: MessagePart):
+        if not msg_part:
+            return []
         lst: List[MessagePart] = []
         for part in msg_part.parts:
             lst += self._get_all_msg_parts_recursive(part)
@@ -244,6 +249,10 @@ class GmailMessage:
         for message_part in message_parts:
             CONVERSION_CONTEXT.register_current_message_part(message_part)
             mime_type: str = message_part.mime_type
+
+            # In case of e.g. 'metadata' format: https://developers.google.com/workspace/gmail/api/reference/rest/v1/Format
+            if not message_part.body:
+                continue
             body, decoding_successful, empty = self._decode_base64_encoded_body(message_part)
             gmail_msg_body_part: GmailMessageBodyPart = GmailMessageBodyPart(body, mime_type)
             result.append(gmail_msg_body_part)
@@ -323,6 +332,8 @@ class GmailThreads:
 class GenericObjectHelper:
     @staticmethod
     def get_field(gmail_api_obj: Dict, field, default_val=None):
+        if not gmail_api_obj:
+            return None
         if isinstance(field, Enum):
             if field.value in gmail_api_obj:
                 ret = gmail_api_obj[field.value]
