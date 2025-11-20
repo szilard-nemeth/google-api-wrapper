@@ -145,6 +145,10 @@ class Message:
     def has_user_label(self):
         return len(self.user_label_names_by_id) > 0
 
+    @property
+    def is_in_inbox(self):
+        return True if "INBOX" in self.all_label_names_by_id else False
+
     def _get_subject_from_headers(self):
         return self._get_field_from_headers("Subject")
 
@@ -232,6 +236,8 @@ class GmailMessage:
     recipient_email: str
     date_str: str
     message_parts: InitVar[List[MessagePart]]
+    labels: List[str]
+    is_in_inbox: bool
 
     def __post_init__(self, message_parts):
         self.message_body_parts: List[GmailMessageBodyPart] = self._convert_message_parts(message_parts)
@@ -245,6 +251,10 @@ class GmailMessage:
     def from_message(message: Message, thread_id: str):
         GmailMessage._get_conversion_context().register_current_message(message)
         # message.message_parts already contains all MessageParts (recursively collected)
+
+        labels = list(message.user_label_names_by_id.values())
+        if message.is_in_inbox:
+            labels.append("Inbox")
         return GmailMessage(
             message.id,
             thread_id,
@@ -256,6 +266,8 @@ class GmailMessage:
             message.recipient_email,
             message.date_str,
             message.message_parts,
+            labels,
+            message.is_in_inbox
         )
 
     def _convert_message_parts(self, message_parts: List[MessagePart]) -> List[GmailMessageBodyPart]:
