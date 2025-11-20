@@ -1,3 +1,4 @@
+import enum
 import logging
 import sys
 import datetime
@@ -45,6 +46,11 @@ class GmailRequestLoggerAdapter(logging.LoggerAdapter):
 
 
 REQ_LOG = GmailRequestLoggerAdapter(LOG, {})
+
+class GmailThreadProcessorResult(enum.Enum):
+    PROCESSED_ALL = "processed_all"
+    PROCESSED_NONE = "processed_none"
+    LIMIT_REACHED = "limit_reached"
 
 
 class Progress:
@@ -376,7 +382,11 @@ class GmailApiFetcher:
             REQ_LOG.info("Requesting gmail threads")
             response: Dict[str, Any] = request.execute()
             ctx.progress.incr_requests(GmailRequestType.THREADS_LIST)
-            thread_processor.process_response(ctx, response)
+            processor_result: GmailThreadProcessorResult = thread_processor.process_response(ctx, response)
+            if processor_result == GmailThreadProcessorResult.LIMIT_REACHED:
+                REQ_LOG.warning("Not processing more Gmail threads as we reached request limit!")
+                return
+
             request = self.threads_svc.list_next(request, response)
 
     def fetch_thread_data_minimal(self, thread_id, ctx: ApiConversionContext) -> List[str]:
@@ -392,12 +402,13 @@ class DefaultGmailThreadProcessor:
         self.fetcher: GmailApiFetcher = fetcher
         self.api_fetching_ctx = api_fetching_ctx
 
-    def process_response(self, ctx: ApiConversionContext, response):
+    def process_response(self, ctx: ApiConversionContext, response) -> GmailThreadProcessorResult:
         if response:
             req_type, thread_ids = GmailWrapper.get_thread_ids_from_response(ctx, response)
-            self.process_threads(ctx, req_type, thread_ids)
+            return self.process_threads(ctx, req_type, thread_ids)
+        return GmailThreadProcessorResult.PROCESSED_NONE
 
-    def process_threads(self, ctx: ApiConversionContext, rt: GmailRequestType, thread_ids: List[str]):
+    def process_threads(self, ctx: ApiConversionContext, rt: GmailRequestType, thread_ids: List[str]) -> GmailThreadProcessorResult:
         progress = ctx.progress
 
         cache_state: CacheResultItems = self.api_fetching_ctx.get_cache_state_for_threads(
@@ -409,8 +420,7 @@ class DefaultGmailThreadProcessor:
             progress.incr_processed_items(rt, thread_id)
             if progress.is_limit_reached(rt):
                 LOG.warning(f"Reached request limit of {progress.limit}, stop processing more items.")
-                # TODO this early return is not handled by calling context
-                return ThreadQueryResults(ctx.threads, None)
+                return GmailThreadProcessorResult.LIMIT_REACHED
             progress.print_processing_items(rt)
             thread_resp_full, loaded_from_cache = self._request_thread_or_load_from_cache(thread_id, cache_state, ctx)
             if not loaded_from_cache:
@@ -420,6 +430,7 @@ class DefaultGmailThreadProcessor:
             ctx.handle_empty_bodies(lambda desc: self.request_attachment_or_load_from_cache(desc, ctx))
 
         self.api_fetching_ctx.print_cache_actions()
+        return GmailThreadProcessorResult.PROCESSED_ALL
 
     def _request_thread_or_load_from_cache(
             self, thread_id: str, cache_state: CacheResultItems, ctx: ApiConversionContext
@@ -503,12 +514,12 @@ class NoFetchingGmailThreadProcessor:
         self.fetcher: GmailApiFetcher = fetcher
         self.api_fetching_ctx = api_fetching_ctx
 
-    def process_response(self, ctx: ApiConversionContext, response):
+    def process_response(self, ctx: ApiConversionContext, response) -> GmailThreadProcessorResult:
         if response:
             req_type, thread_ids = GmailWrapper.get_thread_ids_from_response(ctx, response)
-            self.process_threads(ctx, req_type, thread_ids)
+            return self.process_threads(ctx, req_type, thread_ids)
 
-    def process_threads(self, ctx: ApiConversionContext, rt: GmailRequestType, thread_ids: List[str]):
+    def process_threads(self, ctx: ApiConversionContext, rt: GmailRequestType, thread_ids: List[str]) -> GmailThreadProcessorResult:
         progress = ctx.progress
 
         cache_state: CacheResultItems = self.api_fetching_ctx.get_cache_state_for_threads(
@@ -516,6 +527,7 @@ class NoFetchingGmailThreadProcessor:
         )
         GmailApiHelpers.log_cache_state_details(cache_state, thread_ids)
 
+        # TODO ctx.processor_results is not updated with DefaultGmailThreadProcessor!
         ctx.processor_results= {"count": 0}
         for idx, thread_id in enumerate(thread_ids):
             progress.incr_processed_items(rt, thread_id)
@@ -523,6 +535,7 @@ class NoFetchingGmailThreadProcessor:
         ctx.processor_results["count"] += len(thread_ids)
 
         self.api_fetching_ctx.print_cache_actions()
+        return GmailThreadProcessorResult.PROCESSED_ALL
 
 
 class GmailApiHelpers:
