@@ -14,3 +14,4 @@ class GmailRequestType(enum.Enum):
     MESSAGES = "messages"
     USERS = "users"
     ATTACHMENTS = "attachments"
+    LABELS = "labels"

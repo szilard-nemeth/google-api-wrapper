@@ -39,6 +39,14 @@ class GetAttachmentParam(Enum):
 class ThreadsResponseField(Enum):
     THREADS = "threads"
 
+class LabelsResponseField(Enum):
+    LABELS = "labels"
+
+
+class LabelsDictResponseField(Enum):
+    ID = "id"
+    NAME = "name"
+
 
 class MessagePartBodyField(Enum):
     SIZE = "size"
@@ -60,6 +68,7 @@ class MessageField(Enum):
     SNIPPET = "snippet"
     DATE = "internalDate"
     PAYLOAD = "payload"
+    LABEL_IDS = "labelIds"
 
 
 class ThreadField(Enum):
@@ -117,6 +126,8 @@ class Message:
     thread_id: str
     date: datetime.datetime
     snippet: str
+    all_label_names_by_id: Dict[str, str]
+    user_label_names_by_id: Dict[str, str]
     payload: MessagePart
     subject: str = field(init=False)
     message_parts: List[MessagePart] = field(init=False)
@@ -129,6 +140,10 @@ class Message:
         self.recipient_email = self._extract_recipient_email(self.recipient)
         self.date_str = self._get_date_from_headers()
         self.message_parts: List[MessagePart] = self._get_all_msg_parts_recursive(self.payload)
+
+    @property
+    def has_user_label(self):
+        return len(self.user_label_names_by_id) > 0
 
     def _get_subject_from_headers(self):
         return self._get_field_from_headers("Subject")
@@ -327,6 +342,13 @@ class GmailThreads:
     @property
     def messages(self) -> List[GmailMessage]:
         return [msg for t in self.threads for msg in t.messages]
+
+
+@dataclass
+class GmailLabels:
+    list_of_labels: List[Dict[str, str]]
+    label_names_by_id: Dict[str, str]
+    user_label_names_by_id: Dict[str, str]
 
 
 class GenericObjectHelper:

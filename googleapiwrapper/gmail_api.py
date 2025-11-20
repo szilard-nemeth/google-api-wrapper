@@ -30,7 +30,7 @@ from googleapiwrapper.gmail_domain import (
     GmailThreads,
     GenericObjectHelper as GH,
     ThreadQueryFormat,
-    ThreadQueryParam,
+    ThreadQueryParam, LabelsResponseField, LabelsDictResponseField, GmailLabels,
 )
 from googleapiwrapper.google_auth import GoogleApiAuthorizer, AuthedSession
 from pythoncommons.string_utils import auto_str
@@ -117,6 +117,7 @@ class ApiConversionContext:
 
         # Set later
         self.threads: GmailThreads or None = None
+        self.labels: GmailLabels or None = None
         self.current_message: Message or None = None
         self.current_message_part: MessagePart or None = None
         self.processor_results: Any = None
@@ -283,6 +284,7 @@ class GmailWrapper:
             # If we don't load messages, we can use the maximum value for 'maxResults': https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list
             if not load_messages:
                 kwargs[ListQueryParam.MAX_RESULTS.value] = 500
+            ctx.labels = self.fetcher.fetch_labels(ctx)
             self.fetcher.fetch_threads(ctx, kwargs, thread_processor)
         else:
             req_type = GmailRequestType.THREADS_LIST
@@ -305,13 +307,42 @@ class GmailWrapper:
         thread_ids: List[str] = [GH.get_field(t, ThreadField.ID) for t in list_of_threads]
         return req_type, thread_ids
 
+    @staticmethod
+    def create_gmail_labels_from_response(ctx, response) -> GmailLabels:
+        req_type = GmailRequestType.LABELS
+        list_of_labels: List[Dict[str, str]] = response.get(LabelsResponseField.LABELS.value, [])
+        if not list_of_labels:
+            raise ValueError("Expected more than 0 labels!")
+
+        l_id = LabelsDictResponseField.ID.value
+        l_name = LabelsDictResponseField.NAME.value
+
+        user_labels: Dict[str, str] = list(filter(lambda l: l['type'] == "user", list_of_labels))
+        all_labels_dict: Dict[str, str] = {label[l_id]: label[l_name] for label in list_of_labels}
+        user_labels_dict: Dict[str, str] = {label[l_id]: label[l_name] for label in user_labels}
+
+        ctx.progress.register_new_items(req_type, len(list_of_labels), print_status=True)
+        return GmailLabels(list_of_labels, all_labels_dict, user_labels_dict)
+
 
 class GmailApiFetcher:
     def __init__(self, service):
         self.users_svc = service.users()
+        self.labels_svc = self.users_svc.labels()
         self.messages_svc = self.users_svc.messages()
         self.attachments_svc = self.messages_svc.attachments()
         self.threads_svc = self.users_svc.threads()
+
+    def fetch_labels(
+            self, ctx: ApiConversionContext) -> GmailLabels:
+        kwargs = GmailApiHelpers.get_new_kwargs()
+        REQ_LOG.info(
+            f"Requesting gmail labels"
+        )
+        ctx.progress.incr_requests(GmailRequestType.LABELS)
+        response = self.labels_svc.list(**kwargs).execute()
+        return GmailWrapper.create_gmail_labels_from_response(ctx, response)
+
 
     def fetch_attachment(
             self, ctx: ApiConversionContext, thread_id: str, message_id: str, attachment_id: str
@@ -418,7 +449,7 @@ class DefaultGmailThreadProcessor:
 
     def _convert_to_thread_object(self, ctx, sanity_check: bool, thread_id: str, thread_resp_full):
         messages_response: List[Dict[str, Any]] = GH.get_field(thread_resp_full, ThreadField.MESSAGES)
-        messages: List[Message] = [GmailMessageParser.parse(message) for message in messages_response]
+        messages: List[Message] = [GmailMessageParser.parse(message, ctx.labels) for message in messages_response]
 
         if sanity_check:
             ctx.perform_sanity_check(thread_id)
@@ -527,15 +558,20 @@ class GmailApiHelpers:
 
 class GmailMessageParser:
     @staticmethod
-    def parse(message: Dict):
+    def parse(message: Dict, labels: GmailLabels):
         message_part = GH.get_field(message, MessageField.PAYLOAD)
         message_id: str = GH.get_field(message, MessageField.ID)
         message_part_obj: MessagePart = GmailMessageParser._parse_message_part(message_part, message_id)
+        label_ids: List[str] = GH.get_field(message, MessageField.LABEL_IDS)
+        all_label_names_by_id = {l_id: labels.label_names_by_id[l_id] for l_id in label_ids}
+        user_label_names_by_id = {l_id: labels.user_label_names_by_id[l_id] for l_id in label_ids if l_id in labels.user_label_names_by_id}
         return Message(
             message_id,
             GH.get_field(message, MessageField.THREAD_ID),
             datetime.datetime.fromtimestamp(int(GH.get_field(message, MessageField.DATE)) / 1000),
             GH.get_field(message, MessageField.SNIPPET),
+            all_label_names_by_id,
+            user_label_names_by_id,
             message_part_obj,
         )
 
